@@ -641,6 +641,9 @@ def render_sidebar() -> bool:
 
         if pw == correct_pw:
             st.success("✅ 관리자 모드")
+            if st.button("🏠 고객 화면으로", use_container_width=True):
+                st.session_state["admin_pw"] = ""
+                st.rerun()
             return True
         else:
             st.error("❌ 비밀번호가 틀렸습니다")
