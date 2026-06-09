@@ -32,7 +32,7 @@
 # │     order_end      | 2026-07-10 18:00                                   │
 # │     bank           | 농협                                                │
 # │     account_number | 000-0000-0000                                      │
-# │     holder         | 박용규                                              │
+# │     holder         | 장명숙                                              │
 # │                                                                         │
 # │  3단계: 서비스 계정 이메일로 스프레드시트 공유                              │
 # │  ─────────────────────────────────────────────────────────────────────  │
@@ -63,7 +63,7 @@
 # │  [account]                                                              │
 # │  bank = "농협"                                                           │
 # │  account_number = "000-0000-0000"                                       │
-# │  holder = "박용규"                                                       │
+# │  holder = "장명숙"                                                       │
 # │                                                                         │
 # │  실행: streamlit run peach_order_system.py                              │
 # └─────────────────────────────────────────────────────────────────────────┘
@@ -300,7 +300,7 @@ def load_settings() -> dict:
         def_acct  = st.secrets["account"]["account_number"]
         def_holder = st.secrets["account"]["holder"]
     except Exception:
-        def_bank, def_acct, def_holder = "농협", "000-0000-0000", "박용규"
+        def_bank, def_acct, def_holder = "농협", "000-0000-0000", "장명숙"
 
     defaults = {
         "order_start":    "2026-07-01 09:00",
@@ -504,7 +504,7 @@ def send_confirmation_email(
         f"【 입금 안내 】\n"
         f"은행: {settings.get('bank', '농협')}\n"
         f"계좌: {settings.get('account_number', '000-0000-0000')}\n"
-        f"예금주: {settings.get('holder', '박용규')}\n\n"
+        f"예금주: {settings.get('holder', '장명숙')}\n\n"
         f"※ 입금자명을 주문자 성함으로 해주세요.\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
         f"맛있는 복숭아로 보답하겠습니다! 🍑\n{farm_name} 드림"
@@ -775,7 +775,7 @@ def render_customer_page(settings: dict, products: list):
     st.markdown("---")
     bank   = settings.get("bank", "농협")
     acct   = settings.get("account_number", "000-0000-0000")
-    holder = settings.get("holder", "박용규")
+    holder = settings.get("holder", "장명숙")
     st.markdown(
         f"<div class='account-box'>"
         f"<p style='margin:0 0 0.3rem 0;color:#666;'>📌 주문 후 아래 계좌로 입금해 주세요</p>"
@@ -892,7 +892,7 @@ def _render_order_complete(settings: dict, farm_name: str):
     # 계좌 안내 재표시
     bank   = settings.get("bank", "농협")
     acct   = settings.get("account_number", "000-0000-0000")
-    holder = settings.get("holder", "박용규")
+    holder = settings.get("holder", "장명숙")
     st.markdown(
         f"<div class='account-box'>"
         f"<p style='margin:0 0 0.3rem 0;color:#666;'>💳 아래 계좌로 입금해 주세요</p>"
@@ -1174,7 +1174,7 @@ def render_admin_email(settings: dict):
     order_end   = settings.get("order_end",   "2026-07-10 18:00")
     bank        = settings.get("bank",         "농협")
     acct        = settings.get("account_number", "000-0000-0000")
-    holder      = settings.get("holder",         "박용규")
+    holder      = settings.get("holder",         "장명숙")
 
     st.info("아래 메시지를 복사하여 카카오톡, 문자 등으로 고객에게 보내주세요.")
 
@@ -1223,7 +1223,7 @@ def render_admin_settings(settings: dict):
     col1, col2 = st.columns(2)
     with col1:
         new_bank   = st.text_input("은행명",           value=settings.get("bank", "농협"),         key="cfg_bank")
-        new_holder = st.text_input("예금주",           value=settings.get("holder", "박용규"),     key="cfg_holder")
+        new_holder = st.text_input("예금주",           value=settings.get("holder", "장명숙"),     key="cfg_holder")
     with col2:
         new_acct   = st.text_input("계좌번호",         value=settings.get("account_number", ""),  key="cfg_acct")
         new_phone  = st.text_input("농장 전화번호",    value=settings.get("farm_phone", ""),       key="cfg_phone")
