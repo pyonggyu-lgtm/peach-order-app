@@ -642,7 +642,7 @@ def render_sidebar() -> bool:
         if pw == correct_pw:
             st.success("✅ 관리자 모드")
             if st.button("🏠 고객 화면으로", use_container_width=True):
-                st.session_state["admin_pw"] = ""
+                st.session_state["force_customer"] = True
                 st.rerun()
             return True
         else:
@@ -1315,15 +1315,21 @@ def main():
 
     # 세션 상태 초기화 (최초 실행 시)
     for key, default in [
-        ("order_complete", False),
-        ("order_result",   None),
-        ("recipients",     None),
+        ("order_complete",  False),
+        ("order_result",    None),
+        ("recipients",      None),
+        ("force_customer",  False),
     ]:
         if key not in st.session_state:
             st.session_state[key] = default
 
     # 사이드바에서 관리자 여부 판단
     is_admin = render_sidebar()
+
+    # "고객 화면으로" 버튼 클릭 시 강제로 고객 화면 표시
+    if st.session_state.get("force_customer"):
+        st.session_state["force_customer"] = False
+        is_admin = False
 
     # 설정 및 상품 목록 로드 (캐시 활용)
     settings = load_settings()
