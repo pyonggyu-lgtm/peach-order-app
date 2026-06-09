@@ -731,7 +731,7 @@ def render_customer_page(settings: dict, products: list):
         return
 
     # ── 세션 상태 초기화 ──
-    if "recipients" not in st.session_state:
+    if not st.session_state.get("recipients"):
         st.session_state["recipients"] = [_empty_recipient()]
 
     # ── 주문자 정보 ──
