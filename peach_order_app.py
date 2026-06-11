@@ -390,9 +390,10 @@ def save_orders(order_rows: list) -> bool:
         if not existing:
             # 헤더 자동 생성
             header = [
-                "주문번호", "주문일시", "주문자이름", "주문자전화번호", "주문자주소",
-                "받는분이름", "받는분전화번호", "받는분주소", "상품명", "수량",
-                "배송메모", "상태",
+                "주문번호", "주문일시", "주문자이름", "주문자전화번호",
+                "보내는분이름", "보내는분전화번호", "보내는분주소",
+                "받는분이름", "받는분전화번호", "받는분주소",
+                "상품명", "수량", "배송메모", "상태",
             ]
             sheet.append_row(header)
         for row in order_rows:
@@ -584,15 +585,15 @@ def generate_logen_excel(df: pd.DataFrame, farm_name: str, settings: dict) -> by
     farm_phone = settings.get("farm_phone", "")
 
     logen_df = pd.DataFrame({
-        "받는분성명":       df["받는분이름"].values   if "받는분이름"    in df.columns else "",
-        "받는분주소":       df["받는분주소"].values   if "받는분주소"    in df.columns else "",
-        "받는분전화번호":   df["받는분전화번호"].values if "받는분전화번호" in df.columns else "",
-        "품목":             df["상품명"].values       if "상품명"        in df.columns else "",
-        "박스수량":         df["수량"].values         if "수량"          in df.columns else 1,
-        "보내는분성명":     farm_name,
-        "보내는분주소":     "직접 입력",
-        "보내는분전화번호": farm_phone,
-        "배송메세지":       df["배송메모"].values     if "배송메모"      in df.columns else "",
+        "받는분성명":       df["받는분이름"].values      if "받는분이름"      in df.columns else "",
+        "받는분주소":       df["받는분주소"].values      if "받는분주소"      in df.columns else "",
+        "받는분전화번호":   df["받는분전화번호"].values  if "받는분전화번호"  in df.columns else "",
+        "품목":             df["상품명"].values          if "상품명"          in df.columns else "",
+        "박스수량":         df["수량"].values            if "수량"            in df.columns else 1,
+        "보내는분성명":     df["보내는분이름"].values    if "보내는분이름"    in df.columns else farm_name,
+        "보내는분주소":     df["보내는분주소"].values    if "보내는분주소"    in df.columns else "",
+        "보내는분전화번호": df["보내는분전화번호"].values if "보내는분전화번호" in df.columns else farm_phone,
+        "배송메세지":       df["배송메모"].values        if "배송메모"        in df.columns else "",
     })
 
     output = io.BytesIO()
@@ -734,42 +735,69 @@ def render_customer_page(settings: dict, products: list):
     if not st.session_state.get("recipients"):
         st.session_state["recipients"] = [_empty_recipient()]
 
-    # ── 주문자 정보 ──
-    st.markdown("### 👤 주문자 정보")
+    # ── 주문자(입금자) 정보 ──
+    st.markdown("### 👤 주문자(입금자) 정보")
+    st.caption("실제 주문하고 입금하시는 분의 정보입니다.")
     with st.container():
-        orderer_name    = st.text_input("이름 *",       placeholder="홍길동",             key="orderer_name")
-        orderer_phone   = st.text_input("전화번호 *",   placeholder="010-1234-5678",      key="orderer_phone")
-        orderer_address = st.text_input("주소 *",       placeholder="경북 김천시 OO로 OO",  key="orderer_address")
+        orderer_name  = st.text_input("이름 *",     placeholder="홍길동",        key="orderer_name")
+        orderer_phone = st.text_input("전화번호 *", placeholder="010-1234-5678", key="orderer_phone")
+
+    # ── 보내는 분(발송인) 정보 ──
+    st.markdown("### 📤 보내는 분(발송인) 정보")
+    st.caption("택배 송장에 '보내는 분'으로 표시될 정보입니다.")
+
+    sender_same = st.checkbox("보내는 분이 주문자와 같습니다", key="sender_same", value=True)
+
+    if sender_same:
+        sender_name  = orderer_name
+        sender_phone = orderer_phone
+        sender_address = st.text_input("보내는 분 주소 *", placeholder="경북 김천시 OO로 OO", key="sender_address")
+    else:
+        sender_name    = st.text_input("보내는 분 이름 *",     placeholder="홍길동",             key="sender_name")
+        sender_phone   = st.text_input("보내는 분 전화번호 *", placeholder="010-1234-5678",      key="sender_phone")
+        sender_address = st.text_input("보내는 분 주소 *",     placeholder="경북 김천시 OO로 OO", key="sender_address")
 
     # ── 받는 분 정보 ──
     st.markdown("### 📦 받는 분 정보")
-    st.caption("여러 명에게 따로 보낼 수 있습니다. '받는 분 추가' 버튼을 이용해주세요.")
+
+    recipient_same = st.checkbox("받는 분이 보내는 분과 같습니다 (본인 수령)", key="recipient_same")
 
     recipients = st.session_state["recipients"]
 
-    for i in range(len(recipients)):
-        rec = recipients[i]
-        with st.expander(f"📮 {i + 1}번째 받는 분", expanded=True):
-            col_main, col_del = st.columns([6, 1])
-            with col_del:
-                if len(recipients) > 1:
-                    if st.button("🗑️", key=f"del_{i}", help="이 수령자 삭제"):
-                        st.session_state["recipients"].pop(i)
-                        st.rerun()
+    if recipient_same:
+        st.info("✅ 보내는 분 정보로 배송됩니다. 상품과 수량만 선택해주세요.")
+        rec = recipients[0]
+        rec["name"]    = sender_name
+        rec["phone"]   = sender_phone
+        rec["address"] = sender_address
+        with st.container():
+            default_prod_idx = products.index(rec["product"]) if rec["product"] in products else 0
+            rec["product"] = st.selectbox("상품 선택 *", products, index=default_prod_idx, key="rprod_self")
+            rec["qty"]     = st.number_input("수량 (박스) *", min_value=1, max_value=99, value=int(rec["qty"]), step=1, key="rqty_self")
+            rec["memo"]    = st.text_input("배송 메모 (선택)", value=rec.get("memo", ""), key="rmemo_self", placeholder="경비실 맡겨주세요")
+    else:
+        st.caption("여러 명에게 따로 보낼 수 있습니다. '받는 분 추가' 버튼을 이용해주세요.")
+        for i in range(len(recipients)):
+            rec = recipients[i]
+            with st.expander(f"📮 {i + 1}번째 받는 분", expanded=True):
+                col_main, col_del = st.columns([6, 1])
+                with col_del:
+                    if len(recipients) > 1:
+                        if st.button("🗑️", key=f"del_{i}", help="이 수령자 삭제"):
+                            st.session_state["recipients"].pop(i)
+                            st.rerun()
+                with col_main:
+                    rec["name"]    = st.text_input("받는 분 이름 *",     value=rec["name"],    key=f"rname_{i}",  placeholder="홍길동")
+                    rec["phone"]   = st.text_input("받는 분 전화번호 *",  value=rec["phone"],   key=f"rphone_{i}", placeholder="010-0000-0000")
+                    rec["address"] = st.text_input("받는 분 주소 *",      value=rec["address"], key=f"raddr_{i}",  placeholder="서울시 강남구 테헤란로 123")
+                    default_prod_idx = products.index(rec["product"]) if rec["product"] in products else 0
+                    rec["product"] = st.selectbox("상품 선택 *", products, index=default_prod_idx, key=f"rprod_{i}")
+                    rec["qty"]     = st.number_input("수량 (박스) *", min_value=1, max_value=99, value=int(rec["qty"]), step=1, key=f"rqty_{i}")
+                    rec["memo"]    = st.text_input("배송 메모 (선택)", value=rec.get("memo", ""), key=f"rmemo_{i}", placeholder="경비실 맡겨주세요")
 
-            with col_main:
-                rec["name"]    = st.text_input("받는 분 이름 *",     value=rec["name"],    key=f"rname_{i}",  placeholder="홍길동")
-                rec["phone"]   = st.text_input("받는 분 전화번호 *",  value=rec["phone"],   key=f"rphone_{i}", placeholder="010-0000-0000")
-                rec["address"] = st.text_input("받는 분 주소 *",      value=rec["address"], key=f"raddr_{i}",  placeholder="서울시 강남구 테헤란로 123")
-                default_prod_idx = products.index(rec["product"]) if rec["product"] in products else 0
-                rec["product"] = st.selectbox("상품 선택 *", products, index=default_prod_idx, key=f"rprod_{i}")
-                rec["qty"]     = st.number_input("수량 (박스) *", min_value=1, max_value=99, value=int(rec["qty"]), step=1, key=f"rqty_{i}")
-                rec["memo"]    = st.text_input("배송 메모 (선택)", value=rec.get("memo", ""), key=f"rmemo_{i}", placeholder="경비실 맡겨주세요")
-
-    # 받는 분 추가 버튼
-    if st.button("➕ 받는 분 추가"):
-        st.session_state["recipients"].append(_empty_recipient())
-        st.rerun()
+        if st.button("➕ 받는 분 추가"):
+            st.session_state["recipients"].append(_empty_recipient())
+            st.rerun()
 
     # ── 계좌 안내 ──
     st.markdown("---")
@@ -790,28 +818,41 @@ def render_customer_page(settings: dict, products: list):
 
     # ── 주문 제출 버튼 ──
     if st.button("🍑 주문 완료하기", use_container_width=True, type="primary"):
-        errors = _validate_order(orderer_name, orderer_phone, orderer_address, recipients)
+        errors = _validate_order(
+            orderer_name, orderer_phone,
+            sender_name, sender_phone, sender_address,
+            recipients
+        )
         if errors:
             for err in errors:
                 st.error(err)
         else:
             _submit_order(
-                orderer_name, orderer_phone, orderer_address,
+                orderer_name, orderer_phone,
+                sender_name, sender_phone, sender_address,
                 recipients, settings, farm_name,
             )
 
 
-def _validate_order(name, phone, address, recipients) -> list:
+def _validate_order(orderer_name, orderer_phone, sender_name, sender_phone, sender_address, recipients) -> list:
     """주문 폼 전체 유효성 검사. 오류 메시지 리스트 반환."""
     errors = []
-    if not name.strip():
+    # 주문자 검증
+    if not orderer_name.strip():
         errors.append("❗ 주문자 이름을 입력해주세요.")
-    if not phone.strip():
+    if not orderer_phone.strip():
         errors.append("❗ 주문자 전화번호를 입력해주세요.")
-    elif not validate_phone(phone):
-        errors.append("❗ 전화번호 형식이 올바르지 않습니다. (예: 010-1234-5678)")
-    if not address.strip():
-        errors.append("❗ 주문자 주소를 입력해주세요.")
+    elif not validate_phone(orderer_phone):
+        errors.append("❗ 주문자 전화번호 형식이 올바르지 않습니다. (예: 010-1234-5678)")
+    # 보내는 분 검증
+    if not sender_name.strip():
+        errors.append("❗ 보내는 분 이름을 입력해주세요.")
+    if not sender_phone.strip():
+        errors.append("❗ 보내는 분 전화번호를 입력해주세요.")
+    elif not validate_phone(sender_phone):
+        errors.append("❗ 보내는 분 전화번호 형식이 올바르지 않습니다.")
+    if not sender_address.strip():
+        errors.append("❗ 보내는 분 주소를 입력해주세요.")
 
     for i, rec in enumerate(recipients, 1):
         if not rec["name"].strip():
@@ -827,7 +868,7 @@ def _validate_order(name, phone, address, recipients) -> list:
     return errors
 
 
-def _submit_order(orderer_name, orderer_phone, orderer_address, recipients, settings, farm_name):
+def _submit_order(orderer_name, orderer_phone, sender_name, sender_phone, sender_address, recipients, settings, farm_name):
     """유효성 검사를 통과한 주문을 시트에 저장합니다."""
     order_number = generate_order_number()
     now_str      = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -840,7 +881,9 @@ def _submit_order(orderer_name, orderer_phone, orderer_address, recipients, sett
             now_str,
             orderer_name.strip(),
             orderer_phone.strip(),
-            orderer_address.strip(),   # 이메일 → 주소로 변경
+            sender_name.strip(),
+            sender_phone.strip(),
+            sender_address.strip(),
             rec["name"].strip(),
             rec["phone"].strip(),
             rec["address"].strip(),
