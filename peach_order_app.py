@@ -25,7 +25,7 @@
 # │     주문번호|주문일시|주문자이름|주문자전화번호|주문자이메일|               │
 # │     받는분이름|받는분전화번호|받는분주소|상품명|수량|배송메모|상태          │
 # │  4. 상품목록 1행: 상품명 | 단가 | 설명                                    │
-# │     2행부터 상품 입력 (예: 복숭아 5kg 일반용 | 30000 | 신선한 복숭아)      │
+# │     2행부터 상품 입력 (예: 복숭아 4kg 일반용 | 30000 | 신선한 복숭아)      │
 # │  5. 고객목록 1행: 이름 | 이메일 | 전화번호                                 │
 # │  6. 설정 시트 A/B열:                                                     │
 # │     order_start    | 2026-07-01 09:00                                   │
@@ -352,8 +352,8 @@ def load_products() -> list:
     if sheet is None:
         # 시트 연결 전 기본 상품 (데모용)
         return [
-            "복숭아 5kg 일반용",
-            "복숭아 5kg 선물용",
+            "복숭아 4kg 일반용",
+            "복숭아 4kg 선물용",
             "복숭아 10kg 일반용",
             "복숭아 10kg 선물용",
         ]
@@ -361,9 +361,9 @@ def load_products() -> list:
         rows = sheet.get_all_values()
         # 1행은 헤더(상품명|단가|설명), 2행부터 데이터
         products = [row[0].strip() for row in rows[1:] if row and row[0].strip()]
-        return products if products else ["복숭아 5kg 일반용", "복숭아 5kg 선물용"]
+        return products if products else ["복숭아 4kg 일반용", "복숭아 4kg 선물용"]
     except Exception:
-        return ["복숭아 5kg 일반용", "복숭아 5kg 선물용"]
+        return ["복숭아 4kg 일반용", "복숭아 4kg 선물용"]
 
 
 # =============================================================================
