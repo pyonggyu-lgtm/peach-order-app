@@ -1022,6 +1022,12 @@ def render_customer_page(settings: dict, products: list, prices: dict = None):
 
     st.markdown("---")
 
+    # ── 모드별 상품 필터링: 일반용 / 선물용 구분 ──
+    _gift_prods = [p for p in products if "선물용" in p]
+    _self_prods = [p for p in products if "선물용" not in p]
+    _self_prods = _self_prods or products   # fallback
+    _gift_prods = _gift_prods or products   # fallback
+
     if "우리집" in order_type:
         # ── 모드 1: 본인 수령 ──
         st.markdown("### 👤 주문자 정보")
@@ -1033,7 +1039,7 @@ def render_customer_page(settings: dict, products: list, prices: dict = None):
         st.markdown("### 🍑 상품 선택")
         st.caption("원하는 상품의 수량을 입력해주세요. (0박스 = 제외)")
         qtys = {}
-        for prod in products:
+        for prod in _self_prods:
             qtys[prod] = st.number_input(f"{prod} (박스)", min_value=0, max_value=99, value=0, step=1, key=f"qty_self_{prod}")
         memo = st.text_input("배송 메모 (선택)", key="rmemo_self", placeholder="경비실 맡겨주세요")
         sender_name    = orderer_name
@@ -1072,7 +1078,7 @@ def render_customer_page(settings: dict, products: list, prices: dict = None):
                     if col_d.button("🗑️ 삭제", key=f"del_rec_{rid}"):
                         st.session_state["gift_rec_ids"].remove(rid)
                         for sfx in (["name", "phone", "address", "memo"]
-                                    + [f"qty_{p}" for p in products]):
+                                    + [f"qty_{p}" for p in products]):  # 전체 products로 정리
                             st.session_state.pop(f"gr_{rid}_{sfx}", None)
                         st.rerun()
                 else:
@@ -1084,7 +1090,7 @@ def render_customer_page(settings: dict, products: list, prices: dict = None):
                               on_change=_fmt_phone, args=(f"gr_{rid}_phone",))
                 st.text_input("배송 주소 *", placeholder="서울시 강남구 테헤란로 123", key=f"gr_{rid}_address")
                 st.caption("원하는 상품의 수량을 입력해주세요. (0박스 = 제외)")
-                for prod in products:
+                for prod in _gift_prods:
                     st.number_input(f"{prod} (박스)", min_value=0, max_value=99,
                                     value=0, step=1, key=f"gr_{rid}_qty_{prod}")
                 st.text_input("배송 메모 (선택)", placeholder="경비실 맡겨주세요",
@@ -1108,7 +1114,7 @@ def render_customer_page(settings: dict, products: list, prices: dict = None):
             r_phone   = st.session_state.get(f"gr_{rid}_phone",   "")
             r_address = st.session_state.get(f"gr_{rid}_address", "")
             r_memo    = st.session_state.get(f"gr_{rid}_memo",    "")
-            for prod in products:
+            for prod in _gift_prods:
                 qty = st.session_state.get(f"gr_{rid}_qty_{prod}", 0)
                 if qty > 0:
                     recipients.append({
