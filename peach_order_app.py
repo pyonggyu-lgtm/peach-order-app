@@ -1022,11 +1022,10 @@ def render_customer_page(settings: dict, products: list, prices: dict = None):
 
     st.markdown("---")
 
-    # ── 모드별 상품 필터링: 일반용 / 선물용 구분 ──
-    _gift_prods = [p for p in products if "선물용" in p]
-    _self_prods = [p for p in products if "선물용" not in p]
-    _self_prods = _self_prods or products   # fallback
-    _gift_prods = _gift_prods or products   # fallback
+    # ── 상품 목록: 두 모드 모두 전체 상품 표시 ──
+    # (일반용/선물용 구분 없이 주문자가 원하는 상품을 자유롭게 선택)
+    _gift_prods = products
+    _self_prods = products
 
     if "우리집" in order_type:
         # ── 모드 1: 본인 수령 ──
