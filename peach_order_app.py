@@ -493,6 +493,8 @@ def load_orders() -> pd.DataFrame:
         # Google Sheets 사용 범위가 실제 데이터 범위를 초과할 경우
         # 빈 이름 컬럼(Arrow 직렬화 오류 원인)과 빈 행을 제거
         df = df[[c for c in df.columns if str(c).strip()]]
+        # 중복 컬럼명 제거 (첫 번째만 유지) — 중복 시 df["상태"] 가 DataFrame 반환되어 TypeError 발생
+        df = df.loc[:, ~df.columns.duplicated(keep="first")]
         if "주문번호" in df.columns:
             df = df[df["주문번호"].str.strip() != ""].reset_index(drop=True)
         return df
