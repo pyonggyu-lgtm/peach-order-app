@@ -489,7 +489,13 @@ def load_orders() -> pd.DataFrame:
         rows = sheet.get_all_values()
         if len(rows) < 2:
             return pd.DataFrame()
-        return pd.DataFrame(rows[1:], columns=rows[0])
+        df = pd.DataFrame(rows[1:], columns=rows[0])
+        # Google Sheets 사용 범위가 실제 데이터 범위를 초과할 경우
+        # 빈 이름 컬럼(Arrow 직렬화 오류 원인)과 빈 행을 제거
+        df = df[[c for c in df.columns if str(c).strip()]]
+        if "주문번호" in df.columns:
+            df = df[df["주문번호"].str.strip() != ""].reset_index(drop=True)
+        return df
     except Exception:
         return pd.DataFrame()
 
@@ -507,7 +513,9 @@ def load_customers() -> pd.DataFrame:
         rows = sheet.get_all_values()
         if len(rows) < 2:
             return pd.DataFrame(columns=["이름", "이메일", "전화번호"])
-        return pd.DataFrame(rows[1:], columns=rows[0])
+        df = pd.DataFrame(rows[1:], columns=rows[0])
+        df = df[[c for c in df.columns if str(c).strip()]]
+        return df
     except Exception:
         return pd.DataFrame(columns=["이름", "이메일", "전화번호"])
 
@@ -711,16 +719,18 @@ def generate_logen_excel(df: pd.DataFrame, farm_name: str, settings: dict) -> by
     ws.title = "로젠택배"
 
     # 행1: 농장 정보 텍스트 (A1)
-    info_lines = [f"{farm_name} {farm_phone}"]
-    if farm_address:
-        info_lines.append(f"송하인주소 : {farm_address}")
-    info_lines.append("택배비는 암호화해주세요")
+    addr_display = farm_address if farm_address else "(관리자 설정 탭에서 농장 주소를 입력해 주세요)"
+    info_lines = [
+        f"{farm_name}  ☎ {farm_phone}",
+        f"송하인주소 : {addr_display}",
+        "※ 택배비는 암호화해주세요",
+    ]
     ws["A1"] = "\n".join(info_lines)
     ws["A1"].alignment = Alignment(wrap_text=True, vertical="top")
-    ws.row_dimensions[1].height = 50
+    ws.row_dimensions[1].height = 60
 
     # 행2: 컬럼 헤더
-    headers = ["수하인이름", "수하인주소", "수하인연락처", "수량", "송하인명", "송하인주소", "송하인연락처"]
+    headers = ["수하인이름", "수하인주소", "수하인연락처", "수량", "송하인명", "송하인주소", "송하인연락처", "배송메모"]
     hdr_fill = PatternFill(start_color="FFF2CC", end_color="FFF2CC", fill_type="solid")
     for c_idx, hdr in enumerate(headers, 1):
         cell = ws.cell(row=2, column=c_idx, value=hdr)
@@ -739,11 +749,12 @@ def generate_logen_excel(df: pd.DataFrame, farm_name: str, settings: dict) -> by
         ws.cell(row=r_idx, column=3, value=_g(row_data, "받는분전화번호"))
         ws.cell(row=r_idx, column=4, value=int(qty_val))
         ws.cell(row=r_idx, column=5, value=farm_name)
-        ws.cell(row=r_idx, column=6, value="")         # 데이터행 송하인주소 비움 (로젠 양식 기준)
-        ws.cell(row=r_idx, column=7, value=farm_phone)
+        ws.cell(row=r_idx, column=6, value=farm_address)                    # 송하인주소
+        ws.cell(row=r_idx, column=7, value=_g(row_data, "주문자전화번호"))   # 송하인연락처 = 주문자 전화번호
+        ws.cell(row=r_idx, column=8, value=_g(row_data, "배송메모"))         # 배송메모
 
     # 컬럼 너비
-    col_widths = [16, 36, 16, 7, 14, 12, 16]
+    col_widths = [16, 36, 16, 7, 14, 30, 16, 24]
     for c_idx, width in enumerate(col_widths, 1):
         ws.column_dimensions[get_column_letter(c_idx)].width = width
 
@@ -1069,6 +1080,10 @@ def render_customer_page(settings: dict, products: list, prices: dict = None):
         rec_ids = st.session_state["gift_rec_ids"]
 
         st.markdown("### 🎁 받는 분 정보")
+        st.caption(
+            "📌 받는 분의 배송 주소가 서로 다른 경우, 각 주소마다 개별 배송됩니다. "
+            "(같은 분에게 여러 상품을 보내실 때는 같은 받는 분 항목에서 수량을 올려주세요.)"
+        )
         for idx, rid in enumerate(rec_ids):
             with st.container():
                 if len(rec_ids) > 1:
@@ -1592,8 +1607,8 @@ def render_admin_logen(settings: dict):
     with col1:
         status_filter = st.multiselect(
             "상태 필터",
-            options=["대기", "확인", "발송완료", "취소"],
-            default=["대기", "확인"],
+            options=["대기", "입금확인", "발송완료", "취소"],
+            default=["대기", "입금확인"],
             key="logen_status",
         )
     with col2:
