@@ -1407,10 +1407,10 @@ def render_admin_orders():
     with fc1:
         search_name = st.text_input("🔍 이름 검색", placeholder="주문자 또는 받는 분 이름", key="order_search")
     with fc2:
-        status_view = st.multiselect(
+        status_view = st.selectbox(
             "상태 필터",
-            options=["대기", "입금확인", "배송준비", "배송중", "배송완료", "취소"],
-            default=["대기", "입금확인", "배송준비", "배송중", "배송완료", "취소"],
+            options=["전체", "대기", "입금확인", "배송준비", "배송중", "배송완료", "취소"],
+            index=0,
             key="order_status_filter",
         )
 
@@ -1426,8 +1426,8 @@ def render_admin_orders():
             if col in df.columns:
                 mask |= df[col].str.contains(search_name.strip(), na=False)
         df = df[mask]
-    if status_view and "상태" in df.columns:
-        df = df[df["상태"].isin(status_view)]
+    if status_view != "전체" and "상태" in df.columns:
+        df = df[df["상태"] == status_view]
 
     # ── 최신순 정렬 ──
     if "주문일시" in df.columns:
