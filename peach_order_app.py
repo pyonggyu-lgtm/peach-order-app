@@ -281,7 +281,7 @@ h3 {
     box-shadow: 0 2px 8px rgba(0,0,0,0.08);
     border-top: 3px solid #ff8c42;
 }
-.metric-card .metric-value { font-size: 2rem; font-weight: bold; }
+.metric-card .metric-value { font-size: clamp(0.9rem, 1.7vw, 2rem); font-weight: bold; white-space: nowrap; }
 .metric-card .metric-label { color: #666; font-size: 0.9rem; }
 
 /* ── 모바일 반응형 ── */
@@ -440,6 +440,55 @@ def load_product_prices() -> dict:
         return prices
     except Exception:
         return {}
+
+
+@st.cache_data(ttl=60)
+def load_products_full() -> pd.DataFrame:
+    """'상품목록' 시트 전체를 [상품명, 단가, 설명] DataFrame으로 반환합니다."""
+    cols = ["상품명", "단가", "설명"]
+    sheet = get_sheet("상품목록")
+    if sheet is None:
+        return pd.DataFrame(columns=cols)
+    try:
+        rows = sheet.get_all_values()
+        if len(rows) < 2:
+            return pd.DataFrame(columns=cols)
+        df = pd.DataFrame(rows[1:], columns=rows[0])
+        df = df[[c for c in df.columns if str(c).strip()]]
+        for c in cols:
+            if c not in df.columns:
+                df[c] = ""
+        df = df[cols]
+        df = df[df["상품명"].astype(str).str.strip() != ""].reset_index(drop=True)
+        return df
+    except Exception:
+        return pd.DataFrame(columns=cols)
+
+
+def save_products(df: pd.DataFrame) -> bool:
+    """편집된 상품 DataFrame을 '상품목록' 시트에 저장합니다 (헤더 포함 전체 교체)."""
+    sheet = get_sheet("상품목록")
+    if sheet is None:
+        return False
+    try:
+        rows = [["상품명", "단가", "설명"]]
+        for _, r in df.iterrows():
+            name = str(r.get("상품명", "") or "").strip()
+            if not name:
+                continue   # 상품명 없는 빈 줄은 건너뜀
+            raw = str(r.get("단가", "") or "").replace(",", "").replace("원", "").strip()
+            try:
+                price = int(float(raw)) if raw else 0
+            except ValueError:
+                price = 0
+            desc = str(r.get("설명", "") or "").strip()
+            rows.append([name, price, desc])
+        sheet.clear()
+        sheet.update("A1", rows)
+        return True
+    except Exception as e:
+        st.error(f"상품 저장 실패: {e}")
+        return False
 
 
 # =============================================================================
@@ -1874,6 +1923,44 @@ def render_admin_settings(settings: dict):
         if save_settings(settings):
             load_settings.clear()
             st.success("설정이 저장되었습니다.")
+            st.rerun()
+        else:
+            st.error("저장 실패. Google Sheets 연결을 확인해주세요.")
+
+    # ── 상품 / 단가 관리 ──
+    st.markdown("---")
+    st.markdown("**상품 / 단가 관리**")
+    st.caption(
+        "상품명·단가·설명을 직접 수정하세요. "
+        "맨 아래 빈 줄에 입력하면 상품이 추가되고, 줄 왼쪽을 선택해 삭제할 수 있습니다. "
+        "수정 후 반드시 아래 [상품·단가 저장] 버튼을 눌러주세요."
+    )
+    prod_df = load_products_full()
+    if not prod_df.empty:
+        prod_df["단가"] = (
+            pd.to_numeric(
+                prod_df["단가"].astype(str).str.replace(",", "", regex=False)
+                                          .str.replace("원", "", regex=False).str.strip(),
+                errors="coerce",
+            ).fillna(0).astype(int)
+        )
+    edited_prod = st.data_editor(
+        prod_df,
+        num_rows="dynamic",
+        use_container_width=True,
+        column_config={
+            "상품명": st.column_config.TextColumn("상품명", required=True),
+            "단가":   st.column_config.NumberColumn("단가(원)", min_value=0, step=1000, format="%d"),
+            "설명":   st.column_config.TextColumn("설명"),
+        },
+        key="products_editor",
+    )
+    if st.button("상품·단가 저장", key="save_products_btn"):
+        if save_products(edited_prod):
+            load_products.clear()
+            load_product_prices.clear()
+            load_products_full.clear()
+            st.success("상품 정보가 저장되었습니다.")
             st.rerun()
         else:
             st.error("저장 실패. Google Sheets 연결을 확인해주세요.")
