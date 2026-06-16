@@ -453,13 +453,15 @@ def load_products_full() -> pd.DataFrame:
         rows = sheet.get_all_values()
         if len(rows) < 2:
             return pd.DataFrame(columns=cols)
-        df = pd.DataFrame(rows[1:], columns=rows[0])
+        df = pd.DataFrame(rows[1:], columns=rows[0]).fillna("")
         df = df[[c for c in df.columns if str(c).strip()]]
         for c in cols:
             if c not in df.columns:
                 df[c] = ""
-        df = df[cols]
-        df = df[df["상품명"].astype(str).str.strip() != ""].reset_index(drop=True)
+        df = df[cols].astype(str)
+        # 빈 값(None/nan 문자열 포함)을 빈칸으로 정리하고, 상품명 없는 줄은 제외
+        df = df.replace({"None": "", "nan": "", "NaN": ""})
+        df = df[df["상품명"].str.strip() != ""].reset_index(drop=True)
         return df
     except Exception:
         return pd.DataFrame(columns=cols)
