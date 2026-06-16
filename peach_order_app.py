@@ -1675,7 +1675,32 @@ def render_admin_logen(settings: dict):
         )
 
     with col_mark:
-        if st.button("✅ 선택 주문 '발송완료' 처리", use_container_width=True):
+        st.caption("엑셀로 다운받아 택배회사에 접수완료한 건에 대하여 일괄 발송완료 처리합니다.")
+        # 대상 건수(이미 발송완료/취소 제외) 미리 계산
+        if "상태" in filtered.columns:
+            eligible_n = int((~filtered["상태"].isin(["발송완료", "취소"])).sum())
+        else:
+            eligible_n = len(filtered)
+
+        # 1단계 안전장치: 확인 체크박스를 켜야만 버튼 활성화
+        confirm_chk = st.checkbox("위 내용을 확인했습니다", key="logen_done_confirm_chk")
+
+        clicked = st.button(
+            "✅ 선택 주문 '발송완료' 처리",
+            use_container_width=True,
+            disabled=not confirm_chk,
+        )
+
+        if clicked and not st.session_state.get("logen_done_pending"):
+            # 2단계 안전장치: 첫 클릭은 확인 요청만 (확정 안 함)
+            st.session_state["logen_done_pending"] = True
+            st.warning(
+                f"⚠️ {eligible_n}건을 '발송완료' 처리합니다. "
+                "확정하려면 버튼을 한 번 더 눌러주세요."
+            )
+        elif clicked and st.session_state.get("logen_done_pending"):
+            # 두 번째 클릭 → 실제 처리 실행
+            st.session_state["logen_done_pending"] = False
             sheet = get_sheet("주문목록")
             if sheet:
                 try:
@@ -1705,6 +1730,11 @@ def render_admin_logen(settings: dict):
                     st.error(f"처리 실패: {e}")
             else:
                 st.error("Google Sheets 연결 실패")
+        elif st.session_state.get("logen_done_pending"):
+            # 확인 대기 상태 표시 (버튼을 누르지 않은 다른 재실행 시)
+            st.warning(
+                f"⚠️ {eligible_n}건 발송완료 대기 중 — 버튼을 한 번 더 누르면 확정됩니다."
+            )
 
 
 # =============================================================================
