@@ -981,7 +981,7 @@ def render_customer_page(settings: dict, products: list, prices: dict = None):
                             status_emoji = {
                                 "대기": "⏳", "입금확인": "💳", "확인": "💳",
                                 "배송준비": "📦", "배송중": "🚚", "발송완료": "🚚",
-                                "배송완료": "✅", "취소": "❌",
+                                "발송완료": "✅", "취소": "❌",
                             }.get(row.get("상태", ""), "📋")
                             st.markdown(
                                 f"<div class='recipient-box'>"
@@ -1373,19 +1373,25 @@ def render_admin_orders():
         st.info("ℹ️ 아직 접수된 주문이 없습니다.")
         return
 
+    # ── 상태 값 정규화 (지표 계산 전에 먼저 실행) ──
+    valid_statuses = ["대기", "입금확인", "배송준비", "배송중", "발송완료", "취소"]
+    if "상태" in df.columns:
+        # 알 수 없는 값 → "대기"
+        df["상태"] = df["상태"].apply(lambda x: x if x in valid_statuses else "대기")
+
     # ── 지표 ──
     # "전체 주문"은 고유 주문번호 기준 (상품 2개 주문해도 1건으로 카운트)
     total    = int(df["주문번호"].nunique()) if "주문번호" in df.columns else len(df)
     waiting  = int((df["상태"] == "대기").sum())     if "상태" in df.columns else 0
     confirm  = int((df["상태"] == "입금확인").sum()) if "상태" in df.columns else 0
-    shipped  = int((df["상태"].isin(["배송중","발송완료","배송완료"])).sum()) if "상태" in df.columns else 0
+    shipped  = int((df["상태"].isin(["배송중", "발송완료"])).sum()) if "상태" in df.columns else 0
     canceled = int((df["상태"] == "취소").sum())     if "상태" in df.columns else 0
 
     # ── 총매출 계산 (입금확인 + 배송 관련 상태 기준) ──
     revenue = 0
     prices  = load_product_prices()
     if prices and "상품명" in df.columns and "수량" in df.columns and "상태" in df.columns:
-        paid_df = df[df["상태"].isin(["입금확인","배송준비","배송중","발송완료","배송완료"])].copy()
+        paid_df = df[df["상태"].isin(["입금확인","배송준비","배송중","발송완료"])].copy()
         paid_df["수량_n"] = pd.to_numeric(paid_df["수량"], errors="coerce").fillna(0).astype(int)
         paid_df["단가"]   = paid_df["상품명"].map(prices).fillna(0).astype(int)
         revenue = int((paid_df["수량_n"] * paid_df["단가"]).sum())
@@ -1396,7 +1402,7 @@ def render_admin_orders():
     _metric_card(c1, "전체 주문",  total,        "#ff8c42")
     _metric_card(c2, "대기",       waiting,      "#ffc107")
     _metric_card(c3, "입금확인",   confirm,      "#2196f3")
-    _metric_card(c4, "배송완료",   shipped,      "#4caf50")
+    _metric_card(c4, "발송완료",   shipped,      "#4caf50")
     _metric_card(c5, "취소",       canceled,     "#9e9e9e")
     _metric_card(c6, "총매출(입금)", revenue_str, "#7b1fa2")
 
@@ -1409,15 +1415,10 @@ def render_admin_orders():
     with fc2:
         status_view = st.selectbox(
             "상태 필터",
-            options=["전체", "대기", "입금확인", "배송준비", "배송중", "배송완료", "취소"],
+            options=["전체", "대기", "입금확인", "배송준비", "배송중", "발송완료", "취소"],
             index=0,
             key="order_status_filter",
         )
-
-    # ── 상태 값 정리 (잘못된 값은 "대기"로 초기화) ──
-    valid_statuses = ["대기", "입금확인", "배송준비", "배송중", "배송완료", "취소"]
-    if "상태" in df.columns:
-        df["상태"] = df["상태"].apply(lambda x: x if x in valid_statuses else "대기")
 
     # ── 검색 + 상태 필터 적용 ──
     if search_name.strip():
@@ -1441,6 +1442,11 @@ def render_admin_orders():
         df.insert(0, "순번", df["주문번호"].map(order_map))
     df.index = range(1, len(df) + 1)
 
+    # ── 자주 쓰는 '상태' 열을 맨 앞으로 이동 (가로 스크롤 없이 바로 수정 가능) ──
+    front = [c for c in ["순번", "상태"] if c in df.columns]
+    rest  = [c for c in df.columns if c not in front]
+    df = df[front + rest]
+
     # ── 편집 가능한 데이터 테이블 ──
     edited_df = st.data_editor(
         df,
@@ -1453,7 +1459,7 @@ def render_admin_orders():
             "주문자주소":     st.column_config.TextColumn("보내는분주소",     disabled=True),
             "상태": st.column_config.SelectboxColumn(
                 "상태",
-                options=["대기", "입금확인", "배송준비", "배송중", "배송완료", "취소"],
+                options=["대기", "입금확인", "배송준비", "배송중", "발송완료", "취소"],
             ),
         },
         key="orders_editor",
@@ -1641,11 +1647,12 @@ def render_admin_logen(settings: dict):
         return
 
     # 미리보기
+    # 택배 준비에 필요한 칸만 표시 (주문번호·상태는 위 필터로 이미 구분되고
+    # 택배회사 엑셀에도 포함되지 않으므로 미리보기에서 제외)
     preview_cols = [c for c in [
-        "주문번호",
         "주문자이름", "주문자전화번호", "주문자주소",
         "받는분이름", "받는분전화번호", "받는분주소",
-        "상품명", "수량", "상태",
+        "상품명", "수량",
     ] if c in filtered.columns]
     preview_df = filtered[preview_cols].rename(columns={
         "주문자이름":     "보내는분이름",
