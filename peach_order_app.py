@@ -2001,6 +2001,59 @@ def render_admin_settings(settings: dict):
     else:
         st.error("Google Sheets 연결 실패. gcp_service_account 설정을 확인해주세요.")
 
+    # ── ⚠️ 주문 데이터 초기화 (위험 구역) ──
+    st.markdown("---")
+    st.markdown("**⚠️ 주문 데이터 초기화**")
+    st.caption(
+        "테스트 데이터를 지우거나 새 시즌을 시작할 때 사용하세요. "
+        "주문목록의 모든 주문이 삭제되며 되돌릴 수 없습니다. "
+        "삭제 전 반드시 아래에서 백업(CSV)을 먼저 받아두세요. (상품·계좌·설정은 삭제되지 않습니다.)"
+    )
+    backup_df = load_orders()
+    if not backup_df.empty:
+        st.caption(f"현재 저장된 주문: {len(backup_df)}줄")
+        st.download_button(
+            "📥 삭제 전 백업 다운로드 (CSV)",
+            data=backup_df.to_csv(index=False).encode("utf-8-sig"),
+            file_name=f"주문백업_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+            mime="text/csv",
+            key="reset_backup_dl",
+        )
+    else:
+        st.caption("현재 저장된 주문이 없습니다.")
+
+    reset_chk = st.checkbox(
+        "백업을 받았으며, 모든 주문을 삭제하는 데 동의합니다", key="reset_orders_chk"
+    )
+    reset_clicked = st.button(
+        "🗑️ 주문 데이터 전체 삭제", disabled=not reset_chk, key="reset_orders_btn"
+    )
+    if reset_clicked and not st.session_state.get("reset_orders_pending"):
+        st.session_state["reset_orders_pending"] = True
+        st.warning("⚠️ 모든 주문을 삭제합니다. 확정하려면 버튼을 한 번 더 눌러주세요.")
+    elif reset_clicked and st.session_state.get("reset_orders_pending"):
+        st.session_state["reset_orders_pending"] = False
+        sheet = get_sheet("주문목록")
+        if sheet:
+            try:
+                all_rows = sheet.get_all_values()
+                header = all_rows[0] if all_rows else [
+                    "주문번호", "주문일시", "주문자이름", "주문자전화번호", "주문자주소",
+                    "받는분이름", "받는분전화번호", "받는분주소",
+                    "상품명", "수량", "배송메모", "상태",
+                ]
+                sheet.clear()
+                sheet.update("A1", [header])
+                load_orders.clear()
+                st.success("모든 주문 데이터를 삭제했습니다. (제목 줄은 유지)")
+                st.rerun()
+            except Exception as e:
+                st.error(f"삭제 실패: {e}")
+        else:
+            st.error("Google Sheets 연결 실패")
+    elif st.session_state.get("reset_orders_pending"):
+        st.warning("⚠️ 삭제 대기 중 — 버튼을 한 번 더 누르면 모든 주문이 삭제됩니다.")
+
 
 # =============================================================================
 # [B] 관리자 페이지 - 탭 통합
