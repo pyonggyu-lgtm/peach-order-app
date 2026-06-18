@@ -1,5 +1,5 @@
 # =============================================================================
-# 🍑 실크로드 복숭아 농장 주문관리 시스템 (Streamlit + Google Sheets)
+# 🍑 실크로드농원 주문관리 시스템 (Streamlit + Google Sheets)
 # =============================================================================
 #
 # ┌─────────────────────────────────────────────────────────────────────────┐
@@ -53,7 +53,7 @@
 # │  [app]                                                                  │
 # │  admin_password = "복숭아1234"                                           │
 # │  spreadsheet_id = "1ABC...xyz"                                          │
-# │  farm_name = "실크로드 복숭아 농장"                                          │
+# │  farm_name = "실크로드농원"                                          │
 # │  order_url = "https://your-app.streamlit.app"                           │
 # │                                                                         │
 # │  [email]                                                                │
@@ -966,7 +966,7 @@ def _get_farm_name() -> str:
     try:
         return st.secrets["app"]["farm_name"]
     except Exception:
-        return "실크로드 복숭아 농장"
+        return "실크로드농원"
 
 
 def _empty_recipient() -> dict:
