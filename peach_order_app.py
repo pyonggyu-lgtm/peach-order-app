@@ -386,6 +386,9 @@ def load_settings() -> dict:
         for row in rows:
             if len(row) >= 2 and row[0].strip():
                 settings[row[0].strip()] = row[1].strip()
+        # 은행명 정규화: "농협은행" → "농협"
+        if settings.get("bank", "").endswith("은행"):
+            settings["bank"] = settings["bank"].replace("농협은행", "농협")
         return settings
     except Exception:
         return defaults
@@ -417,14 +420,18 @@ def load_products() -> list:
     sheet = get_sheet("상품목록")
     if sheet is None:
         # 시트 연결 전 기본 상품 (데모용)
-        return ["복숭아 4kg 일반용", "복숭아 4kg 선물용"]
+        return ["복숭아 4kg 선물용", "복숭아 4kg 일반용"]
     try:
         rows = sheet.get_all_values()
         # 1행은 헤더(상품명|단가|설명), 2행부터 데이터
         products = [row[0].strip() for row in rows[1:] if row and row[0].strip()]
-        return products if products else ["복숭아 4kg 일반용", "복숭아 4kg 선물용"]
+        if not products:
+            return ["복숭아 4kg 선물용", "복숭아 4kg 일반용"]
+        # 선물용이 일반용보다 위에 오도록 정렬
+        products.sort(key=lambda n: (0 if "선물용" in n else 1 if "일반용" in n else 2))
+        return products
     except Exception:
-        return ["복숭아 4kg 일반용", "복숭아 4kg 선물용"]
+        return ["복숭아 4kg 선물용", "복숭아 4kg 일반용"]
 
 
 @st.cache_data(ttl=60)
