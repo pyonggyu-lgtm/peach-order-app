@@ -386,9 +386,10 @@ def load_settings() -> dict:
         for row in rows:
             if len(row) >= 2 and row[0].strip():
                 settings[row[0].strip()] = row[1].strip()
-        # 은행명 정규화: "농협은행" → "농협"
-        if settings.get("bank", "").endswith("은행"):
-            settings["bank"] = settings["bank"].replace("농협은행", "농협")
+        # 은행명 정규화: "농협은행", "NH농협은행", "농협 은행" 등 → "농협"
+        bank_val = settings.get("bank", "").strip()
+        if "농협" in bank_val:
+            settings["bank"] = "농협"
         return settings
     except Exception:
         return defaults
