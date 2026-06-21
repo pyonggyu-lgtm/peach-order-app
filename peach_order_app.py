@@ -387,9 +387,13 @@ def load_settings() -> dict:
             if len(row) >= 2 and row[0].strip():
                 settings[row[0].strip()] = row[1].strip()
         # 은행명 정규화: "농협은행", "NH농협은행", "농협 은행" 등 → "농협"
+        # (표시 시 자동으로 "은행"이 덧붙으므로 끝의 "은행" 표기를 제거해 중복 방지)
         bank_val = settings.get("bank", "").strip()
         if "농협" in bank_val:
-            settings["bank"] = "농협"
+            bank_val = "농협"
+        elif bank_val.endswith("은행"):
+            bank_val = bank_val[:-2].strip()
+        settings["bank"] = bank_val
         return settings
     except Exception:
         return defaults
@@ -1854,7 +1858,33 @@ def render_admin_email(settings: dict):
         f"{farm_name}"
     )
 
-    body = st.text_area("메시지 본문 (수정 가능)", value=default_body, height=320, key="msg_body")
+    # 저장된 메시지가 있으면 기본값으로 사용, 없으면 자동 생성 문구 사용
+    saved_body = settings.get("notice_message", "")
+    init_body  = saved_body if saved_body.strip() else default_body
+    body = st.text_area("메시지 본문 (수정 가능)", value=init_body, height=320, key="msg_body")
+
+    # ── 메시지 내용 저장 / 초기화 ──
+    col_save, col_reset = st.columns(2)
+    with col_save:
+        if st.button("💾 메시지 내용 저장", use_container_width=True):
+            if body.strip():
+                settings["notice_message"] = body
+                if save_settings(settings):
+                    load_settings.clear()
+                    st.success("메시지 내용이 저장되었습니다. 다음에 열어도 이 내용이 유지됩니다.")
+                else:
+                    st.error("저장 실패 - Google Sheets 연결을 확인해주세요.")
+            else:
+                st.warning("저장할 메시지 내용을 입력해주세요.")
+    with col_reset:
+        if st.button("↩️ 기본 문구로 초기화", use_container_width=True):
+            settings.pop("notice_message", None)
+            save_settings(settings)
+            load_settings.clear()
+            st.session_state.pop("msg_body", None)
+            st.rerun()
+    if saved_body.strip():
+        st.caption("💾 저장된 메시지를 불러왔습니다.")
 
     st.markdown("---")
 
