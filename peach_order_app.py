@@ -210,7 +210,7 @@ st.markdown("""
     margin: 1rem 0;
 }
 .account-box .bank-name  { font-size: 1.3rem; font-weight: bold; color: #e55a00; }
-.account-box .account-num { font-size: 1.8rem; font-weight: bold; color: #333; letter-spacing: 2px; margin: 0.3rem 0; }
+.account-box .account-num { font-size: clamp(1.1rem, 5.5vw, 1.8rem); font-weight: bold; color: #333; letter-spacing: 1px; margin: 0.3rem 0; white-space: nowrap; }
 
 /* ── 수령자 박스 ── */
 .recipient-box {
@@ -1241,7 +1241,7 @@ def render_customer_page(settings: dict, products: list, prices: dict = None):
     st.markdown(
         f"<div class='account-box'>"
         f"<p style='margin:0 0 0.3rem 0;color:#666;'>📌 주문 후 아래 계좌로 입금해 주세요</p>"
-        f"<div class='bank-name'>{bank}은행</div>"
+        f"<div class='bank-name'>{bank}</div>"
         f"<div class='account-num'>{acct}</div>"
         f"<div style='color:#555;'>예금주: <strong>{holder}</strong></div>"
         f"<p style='font-size:0.85rem;color:#888;margin-top:0.5rem;'>"
@@ -1394,7 +1394,7 @@ def _render_order_complete(settings: dict, farm_name: str):
     st.markdown(
         f"<div class='account-box'>"
         f"<p style='margin:0 0 0.3rem 0;color:#666;'>💳 아래 계좌로 입금해 주세요</p>"
-        f"<div class='bank-name'>{bank}은행</div>"
+        f"<div class='bank-name'>{bank}</div>"
         f"<div class='account-num'>{acct}</div>"
         f"<div style='color:#555;'>예금주: <strong>{holder}</strong></div>"
         f"</div>",
