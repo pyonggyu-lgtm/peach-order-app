@@ -776,16 +776,25 @@ def generate_logen_excel(df: pd.DataFrame, farm_name: str, settings: dict) -> by
     if "수량" in df.columns:
         df["수량"] = pd.to_numeric(df["수량"], errors="coerce").fillna(1).astype(int)
 
-    # ── 수신자 기준 그룹화: 같은 수신자의 일반용+선물용 수량 합산 ──
+    # ── 상품 종류 분류: 상품명에 '선물용'이 있으면 선물용, 아니면 일반용 ──
+    if "상품명" in df.columns:
+        df["_종류"] = df["상품명"].apply(lambda s: "선물용" if "선물용" in str(s) else "일반용")
+    else:
+        df["_종류"] = "일반용"
+
+    # ── 수신자 기준 그룹화: 선물용/일반용 수량을 각각 합산 ──
     group_keys = [k for k in ["받는분이름", "받는분주소", "받는분전화번호"] if k in df.columns]
     if group_keys and "수량" in df.columns:
-        qty_sum   = df.groupby(group_keys, sort=False)["수량"].sum().reset_index()
-        other_cols = [c for c in df.columns if c not in group_keys + ["수량"]]
-        if other_cols:
-            first_row = df.groupby(group_keys, sort=False)[other_cols].first().reset_index()
-            df = qty_sum.merge(first_row, on=group_keys, how="left")
-        else:
-            df = qty_sum
+        other_cols  = [c for c in df.columns if c not in group_keys + ["수량", "_종류"]]
+        first_row   = df.groupby(group_keys, sort=False)[other_cols].first().reset_index()
+        qty_by_kind = df.groupby(group_keys + ["_종류"], sort=False)["수량"].sum().reset_index()
+        gift_q = (qty_by_kind[qty_by_kind["_종류"] == "선물용"]
+                  .drop(columns="_종류").rename(columns={"수량": "선물용수량"}))
+        norm_q = (qty_by_kind[qty_by_kind["_종류"] == "일반용"]
+                  .drop(columns="_종류").rename(columns={"수량": "일반용수량"}))
+        df = first_row.merge(gift_q, on=group_keys, how="left").merge(norm_q, on=group_keys, how="left")
+        df["선물용수량"] = df["선물용수량"].fillna(0).astype(int)
+        df["일반용수량"] = df["일반용수량"].fillna(0).astype(int)
 
     # ── 엑셀 생성 ──
     wb = Workbook()
@@ -804,7 +813,7 @@ def generate_logen_excel(df: pd.DataFrame, farm_name: str, settings: dict) -> by
     ws.row_dimensions[1].height = 60
 
     # 행2: 컬럼 헤더
-    headers = ["수하인이름", "수하인주소", "수하인연락처", "수량", "송하인명", "송하인주소", "송하인연락처", "배송메모"]
+    headers = ["수하인이름", "수하인주소", "수하인연락처", "선물용", "일반용", "송하인명", "송하인주소", "송하인연락처", "배송메모"]
     hdr_fill = PatternFill(start_color="FFF2CC", end_color="FFF2CC", fill_type="solid")
     for c_idx, hdr in enumerate(headers, 1):
         cell = ws.cell(row=2, column=c_idx, value=hdr)
@@ -816,8 +825,16 @@ def generate_logen_excel(df: pd.DataFrame, farm_name: str, settings: dict) -> by
     def _g(row_data, col):
         return row_data.get(col, "") if col in df.columns else ""
 
+    def _qty(row_data, col):
+        # 수량을 정수로 변환, 0개는 공란("")으로 표기
+        v = row_data.get(col, 0) if col in df.columns else 0
+        try:
+            v = int(v)
+        except Exception:
+            v = 0
+        return v if v > 0 else ""
+
     for r_idx, (_, row_data) in enumerate(df.iterrows(), 3):
-        qty_val = row_data.get("수량", 1) if "수량" in df.columns else 1
         # 본인용 주문(우리집 배달) 판별: 주문자 = 받는분(이름·전화번호 동일)
         is_self_delivery = (
             str(_g(row_data, "주문자이름")).strip() == str(_g(row_data, "받는분이름")).strip()
@@ -827,15 +844,16 @@ def generate_logen_excel(df: pd.DataFrame, farm_name: str, settings: dict) -> by
         ws.cell(row=r_idx, column=1, value=_g(row_data, "받는분이름"))
         ws.cell(row=r_idx, column=2, value=_g(row_data, "받는분주소"))
         ws.cell(row=r_idx, column=3, value=_g(row_data, "받는분전화번호"))
-        ws.cell(row=r_idx, column=4, value=int(qty_val))
+        ws.cell(row=r_idx, column=4, value=_qty(row_data, "선물용수량"))    # 선물용 개수
+        ws.cell(row=r_idx, column=5, value=_qty(row_data, "일반용수량"))    # 일반용 개수
         # 선물 주문만 송하인 이름·전화번호 표기 / 본인용은 공란 / 송하인주소는 전체 공란
-        ws.cell(row=r_idx, column=5, value="" if is_self_delivery else _g(row_data, "주문자이름"))      # 송하인명
-        ws.cell(row=r_idx, column=6, value="")                                                          # 송하인주소 = 공란
-        ws.cell(row=r_idx, column=7, value="" if is_self_delivery else _g(row_data, "주문자전화번호"))  # 송하인연락처
-        ws.cell(row=r_idx, column=8, value=_g(row_data, "배송메모"))         # 배송메모
+        ws.cell(row=r_idx, column=6, value="" if is_self_delivery else _g(row_data, "주문자이름"))      # 송하인명
+        ws.cell(row=r_idx, column=7, value="")                                                          # 송하인주소 = 공란
+        ws.cell(row=r_idx, column=8, value="" if is_self_delivery else _g(row_data, "주문자전화번호"))  # 송하인연락처
+        ws.cell(row=r_idx, column=9, value=_g(row_data, "배송메모"))         # 배송메모
 
     # 컬럼 너비
-    col_widths = [16, 36, 16, 7, 14, 30, 16, 24]
+    col_widths = [16, 36, 16, 7, 7, 14, 30, 16, 24]
     for c_idx, width in enumerate(col_widths, 1):
         ws.column_dimensions[get_column_letter(c_idx)].width = width
 
