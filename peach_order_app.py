@@ -818,19 +818,13 @@ def generate_logen_excel(df: pd.DataFrame, farm_name: str, settings: dict) -> by
 
     for r_idx, (_, row_data) in enumerate(df.iterrows(), 3):
         qty_val = row_data.get("수량", 1) if "수량" in df.columns else 1
-        # ── '우리집으로 배달(내가 먹을려고)' 판별: 주문자=받는분(이름·전화번호 동일) ──
-        is_self_delivery = (
-            str(_g(row_data, "주문자이름")).strip() == str(_g(row_data, "받는분이름")).strip()
-            and str(_g(row_data, "주문자전화번호")).strip() == str(_g(row_data, "받는분전화번호")).strip()
-            and str(_g(row_data, "받는분이름")).strip() != ""
-        )
         ws.cell(row=r_idx, column=1, value=_g(row_data, "받는분이름"))
         ws.cell(row=r_idx, column=2, value=_g(row_data, "받는분주소"))
         ws.cell(row=r_idx, column=3, value=_g(row_data, "받는분전화번호"))
         ws.cell(row=r_idx, column=4, value=int(qty_val))
-        # 우리집 배달이면 송하인명·송하인주소는 공란 (송하인연락처는 그대로 유지)
-        ws.cell(row=r_idx, column=5, value="" if is_self_delivery else farm_name)        # 송하인명
-        ws.cell(row=r_idx, column=6, value="" if is_self_delivery else farm_address)     # 송하인주소
+        # 송하인명 = 실제 주문자 이름 / 송하인주소 = 전체 공란 / 송하인연락처 = 주문자 전화번호
+        ws.cell(row=r_idx, column=5, value=_g(row_data, "주문자이름"))       # 송하인명 = 주문자
+        ws.cell(row=r_idx, column=6, value="")                              # 송하인주소 = 공란
         ws.cell(row=r_idx, column=7, value=_g(row_data, "주문자전화번호"))   # 송하인연락처 = 주문자 전화번호
         ws.cell(row=r_idx, column=8, value=_g(row_data, "배송메모"))         # 배송메모
 
