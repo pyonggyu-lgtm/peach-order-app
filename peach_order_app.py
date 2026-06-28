@@ -888,11 +888,16 @@ def generate_logen_excel(df: pd.DataFrame, farm_name: str, settings: dict) -> by
     else:
         df["_품종"], df["_용도"] = "", ""
 
-    # ── 품종·용도별 총 발송 집계 (전체 합계) ──
+    # ── 용도별 총 발송 집계 (선물용/일반용/합계) ──
     total_summary = ""
-    if "수량" in df.columns and "상품명" in df.columns:
-        tot = df.groupby(["_품종", "_용도"], sort=False)["수량"].sum()
-        parts = [f"{v}-{u}-{int(q)}박스" for (v, u), q in tot.items() if int(q) > 0 and u]
+    if "수량" in df.columns and "_용도" in df.columns:
+        gift_tot    = int(df[df["_용도"] == "선물"]["수량"].sum())
+        general_tot = int(df[df["_용도"] == "일반"]["수량"].sum())
+        total_tot   = gift_tot + general_tot
+        parts = []
+        if gift_tot > 0:    parts.append(f"선물용-{gift_tot}박스")
+        if general_tot > 0: parts.append(f"일반용-{general_tot}박스")
+        if total_tot > 0:   parts.append(f"합계-{total_tot}박스")
         total_summary = ", ".join(parts)
 
     # ── 수신자 기준 그룹화 (대표행 + 선물용/일반용 수량 집계) ──
