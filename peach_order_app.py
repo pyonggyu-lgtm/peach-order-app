@@ -74,6 +74,13 @@ import gspread
 from google.oauth2.service_account import Credentials
 import pandas as pd
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
+
+_KST = ZoneInfo("Asia/Seoul")
+
+def now_kst() -> datetime:
+    """Streamlit Cloud(UTC)에서도 KST 현재 시각을 반환합니다."""
+    return datetime.now(_KST).replace(tzinfo=None)
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -326,6 +333,7 @@ def get_gspread_client():
         return None
 
 
+@st.cache_resource(ttl=300)
 def get_spreadsheet():
     """스프레드시트 객체를 반환합니다. 실패 시 None."""
     client = get_gspread_client()
@@ -337,6 +345,7 @@ def get_spreadsheet():
         return None
 
 
+@st.cache_resource(ttl=300)
 def get_sheet(name: str):
     """시트 이름으로 워크시트 객체를 반환합니다. 실패 시 None."""
     ss = get_spreadsheet()
@@ -618,7 +627,7 @@ def save_products(df: pd.DataFrame) -> bool:
 
 def generate_order_number() -> str:
     """주문번호 생성: PEACH-YYYYMMDD-XXXXXX (6자리 영숫자 대문자)"""
-    today  = datetime.now().strftime("%Y%m%d")
+    today  = now_kst().strftime("%Y%m%d")
     suffix = "".join(random.choices(string.ascii_uppercase + string.digits, k=6))
     return f"PEACH-{today}-{suffix}"
 
@@ -787,7 +796,7 @@ def check_order_period(settings: dict):
     현재 시각과 주문 기간을 비교합니다.
     반환: ("before" | "open" | "closed", start_dt, end_dt)
     """
-    now = datetime.now()
+    now = now_kst()
     try:
         start_dt = datetime.strptime(
             settings.get("order_start", "2099-01-01 00:00"), "%Y-%m-%d %H:%M"
@@ -808,7 +817,7 @@ def check_order_period(settings: dict):
 
 def format_countdown(end_dt: datetime) -> str:
     """마감까지 남은 시간을 '00일 00시간 00분' 형식으로 반환합니다."""
-    remaining = end_dt - datetime.now()
+    remaining = end_dt - now_kst()
     if remaining.total_seconds() <= 0:
         return "마감되었습니다"
     days = remaining.days
@@ -1398,7 +1407,7 @@ def _validate_order(orderer_name, orderer_phone, sender_name, sender_phone, send
 def _submit_order(orderer_name, orderer_phone, sender_name, sender_phone, sender_address, recipients, settings, farm_name):
     """유효성 검사를 통과한 주문을 시트에 저장합니다."""
     order_number = generate_order_number()
-    now_str      = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    now_str      = now_kst().strftime("%Y-%m-%d %H:%M:%S")
 
     # 수령자별로 한 행씩 저장 (주문번호는 동일)
     rows = []
@@ -1724,7 +1733,7 @@ def render_admin_orders():
         st.download_button(
             "📥 CSV 다운로드",
             data=csv_bytes,
-            file_name=f"주문목록_{datetime.now().strftime('%Y%m%d')}.csv",
+            file_name=f"주문목록_{now_kst().strftime('%Y%m%d')}.csv",
             mime="text/csv",
             use_container_width=True,
         )
@@ -1752,7 +1761,7 @@ def render_admin_period(settings: dict):
     cb, cc = st.columns(2)
     with cb:
         if st.button("🟢 지금 바로 열기 (7일 후 자동마감)", use_container_width=True, type="primary"):
-            now = datetime.now()
+            now = now_kst()
             settings["order_start"] = now.strftime("%Y-%m-%d %H:%M")
             settings["order_end"]   = (now + timedelta(days=7)).strftime("%Y-%m-%d %H:%M")
             if save_settings(settings):
@@ -1764,7 +1773,7 @@ def render_admin_period(settings: dict):
 
     with cc:
         if st.button("🔴 지금 바로 닫기", use_container_width=True):
-            past = datetime.now() - timedelta(minutes=1)
+            past = now_kst() - timedelta(minutes=1)
             settings["order_end"] = past.strftime("%Y-%m-%d %H:%M")
             if save_settings(settings):
                 load_settings.clear()
@@ -1846,7 +1855,7 @@ def render_admin_logen(settings: dict):
         st.download_button(
             "📥 로젠택배 엑셀 다운로드",
             data=excel_bytes,
-            file_name=f"로젠택배_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
+            file_name=f"로젠택배_{now_kst().strftime('%Y%m%d_%H%M')}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             use_container_width=True,
         )
@@ -2172,7 +2181,7 @@ def render_admin_settings(settings: dict):
         st.download_button(
             "📥 삭제 전 백업 다운로드 (CSV)",
             data=backup_df.to_csv(index=False).encode("utf-8-sig"),
-            file_name=f"주문백업_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+            file_name=f"주문백업_{now_kst().strftime('%Y%m%d_%H%M')}.csv",
             mime="text/csv",
             key="reset_backup_dl",
         )
