@@ -840,8 +840,9 @@ def generate_logen_excel(df: pd.DataFrame, farm_name: str, settings: dict) -> by
     주문 DataFrame을 로젠택배 업로드 양식 엑셀로 변환합니다.
 
     행1 : 농장정보 텍스트 (A1 셀)
-    행2 : 컬럼 헤더 — 수하인이름/수하인주소/수하인연락처/수량/송하인명/송하인주소/송하인연락처
-    행3+: 데이터 (수신자 기준 그룹화, 수량 합산 — 일반용+선물용 통합)
+    행2 : 총 발송 집계 (품종·용도별 합계)
+    행3 : 컬럼 헤더 — 수하인이름/수하인주소/수하인연락처/주문내역/송하인명/송하인주소/송하인연락처/배송메모
+    행4+: 데이터 (수신자 기준 그룹화, 주문내역 요약)
     취소 상태는 자동으로 제외됩니다.
     """
     from openpyxl import Workbook
@@ -1150,46 +1151,6 @@ def render_customer_page(settings: dict, products: list, prices: dict = None):
             unsafe_allow_html=True,
         )
 
-        # ── 배송 조회 (마감 후에도 이용 가능) ──
-        st.markdown("---")
-        st.markdown("#### 📦 주문번호로 배송 조회")
-        query_no = st.text_input(
-            "주문번호 입력",
-            placeholder="예: PEACH-20260613-ABC123",
-            key="track_order_no",
-        )
-        if st.button("🔍 조회", key="track_btn"):
-            if not query_no.strip():
-                st.warning("주문번호를 입력해주세요.")
-            else:
-                df_all = load_orders()
-                if df_all.empty or "주문번호" not in df_all.columns:
-                    st.error("주문 데이터를 불러올 수 없습니다.")
-                else:
-                    hit = df_all[df_all["주문번호"].str.strip() == query_no.strip()]
-                    if hit.empty:
-                        st.error("해당 주문번호를 찾을 수 없습니다. 주문번호를 다시 확인해주세요.")
-                    else:
-                        st.success(f"✅ 주문번호 **{query_no.strip()}** 조회 결과")
-                        for _, row in hit.iterrows():
-                            status_emoji = {
-                                "대기": "⏳", "입금확인": "💳", "확인": "💳",
-                                "배송준비": "📦", "배송중": "🚚", "발송완료": "🚚",
-                                "발송완료": "✅", "취소": "❌",
-                            }.get(row.get("상태", ""), "📋")
-                            st.markdown(
-                                f"<div class='recipient-box'>"
-                                f"<div class='recipient-box-title'>"
-                                f"받는분: {row.get('받는분이름','')}"
-                                f"</div>"
-                                f"<div>상품: {row.get('상품명','')} {row.get('수량','')}박스</div>"
-                                f"<div>주소: {row.get('받는분주소','')}</div>"
-                                f"<div>현재 상태: {status_emoji} <strong>{row.get('상태','')}</strong></div>"
-                                f"<div style='font-size:0.82rem;color:#888;margin-top:4px;'>"
-                                f"주문일시: {row.get('주문일시','')}</div>"
-                                f"</div>",
-                                unsafe_allow_html=True,
-                            )
         return
 
     # ── 주문 접수 중: 카운트다운 표시 ──
