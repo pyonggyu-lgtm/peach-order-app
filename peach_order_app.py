@@ -927,7 +927,7 @@ def generate_logen_excel(df: pd.DataFrame, farm_name: str, settings: dict) -> by
     ws.row_dimensions[2].height = 20
 
     # 행3: 컬럼 헤더
-    headers = ["수하인이름", "수하인주소", "수하인연락처", "주문내역", "송하인명", "송하인주소", "송하인연락처", "배송메모"]
+    headers = ["수하인이름", "수하인주소", "수하인연락처", "주문내역", "송하인명", "송하인주소", "송하인연락처"]
     hdr_fill = PatternFill(start_color="FFF2CC", end_color="FFF2CC", fill_type="solid")
     for c_idx, hdr in enumerate(headers, 1):
         cell = ws.cell(row=3, column=c_idx, value=hdr)
@@ -954,10 +954,9 @@ def generate_logen_excel(df: pd.DataFrame, farm_name: str, settings: dict) -> by
         ws.cell(row=r_idx, column=5, value="" if is_self_delivery else _g(row_data, "주문자이름"))      # 송하인명
         ws.cell(row=r_idx, column=6, value="")                                                          # 송하인주소 = 공란
         ws.cell(row=r_idx, column=7, value="" if is_self_delivery else _g(row_data, "주문자전화번호"))  # 송하인연락처
-        ws.cell(row=r_idx, column=8, value=_g(row_data, "배송메모"))         # 배송메모
 
     # 컬럼 너비
-    col_widths = [16, 36, 16, 34, 14, 12, 16, 22]
+    col_widths = [16, 36, 16, 34, 14, 12, 16]
     for c_idx, width in enumerate(col_widths, 1):
         ws.column_dimensions[get_column_letter(c_idx)].width = width
 
@@ -1211,14 +1210,13 @@ def render_customer_page(settings: dict, products: list, prices: dict = None):
         st.markdown("### 🍑 상품 선택")
         st.caption("원하는 품종의 수량을 입력해주세요. (0박스 = 제외)")
         qtys = _render_product_qtys(products_struct, "qty_self_")
-        memo = st.text_input("배송 메모 (선택)", key="rmemo_self", placeholder="경비실 맡겨주세요")
         sender_name    = orderer_name
         sender_phone   = orderer_phone
         sender_address = address
         orderer_address = address
         recipients = [
             {"name": orderer_name, "phone": orderer_phone, "address": address,
-             "product": prod, "qty": qty, "memo": memo}
+             "product": prod, "qty": qty, "memo": ""}
             for prod, qty in qtys.items() if qty > 0
         ]
 
@@ -1251,7 +1249,7 @@ def render_customer_page(settings: dict, products: list, prices: dict = None):
                     col_t.markdown(f"**📮 받는 분 {idx + 1}**")
                     if col_d.button("🗑️ 삭제", key=f"del_rec_{rid}"):
                         st.session_state["gift_rec_ids"].remove(rid)
-                        for sfx in (["name", "phone", "address", "memo"]
+                        for sfx in (["name", "phone", "address"]
                                     + [f"qty_{p}" for p in products]):  # 전체 products로 정리
                             st.session_state.pop(f"gr_{rid}_{sfx}", None)
                         st.rerun()
@@ -1265,8 +1263,6 @@ def render_customer_page(settings: dict, products: list, prices: dict = None):
                 st.text_input("배송 주소 *", placeholder="서울시 강남구 테헤란로 123", key=f"gr_{rid}_address")
                 st.caption("원하는 품종의 수량을 입력해주세요. (0박스 = 제외)")
                 _render_product_qtys(products_struct, f"gr_{rid}_qty_")
-                st.text_input("배송 메모 (선택)", placeholder="경비실 맡겨주세요",
-                              key=f"gr_{rid}_memo")
 
             if idx < len(rec_ids) - 1:
                 st.markdown("---")
@@ -1285,14 +1281,13 @@ def render_customer_page(settings: dict, products: list, prices: dict = None):
             r_name    = st.session_state.get(f"gr_{rid}_name",    "")
             r_phone   = st.session_state.get(f"gr_{rid}_phone",   "")
             r_address = st.session_state.get(f"gr_{rid}_address", "")
-            r_memo    = st.session_state.get(f"gr_{rid}_memo",    "")
             for prod in _gift_prods:
                 qty = st.session_state.get(f"gr_{rid}_qty_{prod}", 0)
                 if qty > 0:
                     recipients.append({
                         "name": r_name, "phone": r_phone,
                         "address": r_address, "product": prod,
-                        "qty": qty, "memo": r_memo,
+                        "qty": qty, "memo": "",
                     })
 
     # ── 총 결제금액 합산 ──
@@ -1490,7 +1485,6 @@ def _render_order_complete(settings: dict, farm_name: str):
 
     for i, info in enumerate(grouped.values(), 1):
         products_html = "".join(f"<div>상품: {p}</div>" for p in info["products"])
-        memo_html = f"<div>배송메모: {info['memo']}</div>" if info["memo"] else ""
         label = f"📮 수령자: {info['name']}" if len(grouped) == 1 else f"📮 {i}번째 수령자: {info['name']}"
         st.markdown(
             f"<div class='recipient-box'>"
@@ -1498,7 +1492,6 @@ def _render_order_complete(settings: dict, farm_name: str):
             f"<div>전화번호: {info['phone']}</div>"
             f"<div>주소: {info['address']}</div>"
             f"{products_html}"
-            f"{memo_html}"
             f"</div>",
             unsafe_allow_html=True,
         )
