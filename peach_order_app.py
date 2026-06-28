@@ -88,6 +88,7 @@ import io
 import random
 import string
 import re
+import html as _html
 
 # CoolSMS — 설치 여부에 따라 동적 import
 try:
@@ -414,10 +415,13 @@ def save_settings(settings: dict) -> bool:
     if sheet is None:
         return False
     try:
-        sheet.clear()
         rows = [[k, v] for k, v in settings.items()]
         if rows:
-            sheet.update("A1", rows)
+            sheet.update("A1", rows)  # 덮어쓰기 (clear 없이 원자적으로 기록)
+            try:
+                sheet.resize(len(rows))  # 이전보다 줄어든 경우 잉여 행 제거
+            except Exception:
+                pass
         return True
     except Exception as e:
         st.error(f"설정 저장 실패: {e}")
@@ -838,7 +842,7 @@ def format_countdown(end_dt: datetime) -> str:
 
 def validate_phone(phone: str) -> bool:
     """전화번호 형식 검증: 010-XXXX-XXXX"""
-    return bool(re.match(r"^010-\d{3,4}-\d{4}$", phone.strip()))
+    return bool(re.match(r"^010-\d{4}-\d{4}$", phone.strip()))
 
 
 def _fmt_phone(key: str) -> None:
@@ -918,12 +922,16 @@ def generate_logen_excel(df: pd.DataFrame, farm_name: str, settings: dict) -> by
                        .sum().reset_index(name="_선물용"))
         general_qty = (df[df["_용도"] == "일반"].groupby(group_keys, sort=False)["수량"]
                        .sum().reset_index(name="_일반용"))
+        other_qty   = (df[~df["_용도"].isin(["선물", "일반"])].groupby(group_keys, sort=False)["수량"]
+                       .sum().reset_index(name="_기타"))
         df = (first_row
               .merge(gift_qty,    on=group_keys, how="left")
-              .merge(general_qty, on=group_keys, how="left"))
+              .merge(general_qty, on=group_keys, how="left")
+              .merge(other_qty,   on=group_keys, how="left"))
         df["_선물용"] = df["_선물용"].fillna(0).astype(int)
         df["_일반용"] = df["_일반용"].fillna(0).astype(int)
-        df["_합계"]   = df["_선물용"] + df["_일반용"]
+        df["_기타"]   = df["_기타"].fillna(0).astype(int)
+        df["_합계"]   = df["_선물용"] + df["_일반용"] + df["_기타"]
 
     # ── 엑셀 생성 ──
     wb = Workbook()
@@ -1475,8 +1483,8 @@ def _render_order_complete(settings: dict, farm_name: str):
     st.markdown(
         f"<div class='notice-box open'>"
         f"<h2>🎉 주문이 완료되었습니다!</h2>"
-        f"<p style='font-size:1.1rem;'>주문번호: <strong>{order_number}</strong></p>"
-        f"<p>{name}님, 주문해주셔서 감사합니다! 🍑</p>"
+        f"<p style='font-size:1.1rem;'>주문번호: <strong>{_html.escape(order_number)}</strong></p>"
+        f"<p>{_html.escape(name)}님, 주문해주셔서 감사합니다! 🍑</p>"
         f"<p style='font-size:0.9rem;color:#555;'>"
         f"주문 접수 후 곧 메시지로 안내드리겠습니다."
         f"</p>"
@@ -1509,13 +1517,14 @@ def _render_order_complete(settings: dict, farm_name: str):
         grouped[key]["products"].append(f"{rec['product']} × {rec['qty']}박스")
 
     for i, info in enumerate(grouped.values(), 1):
-        products_html = "".join(f"<div>상품: {p}</div>" for p in info["products"])
-        label = f"📮 수령자: {info['name']}" if len(grouped) == 1 else f"📮 {i}번째 수령자: {info['name']}"
+        products_html = "".join(f"<div>상품: {_html.escape(p)}</div>" for p in info["products"])
+        esc_name = _html.escape(info['name'])
+        label = f"📮 수령자: {esc_name}" if len(grouped) == 1 else f"📮 {i}번째 수령자: {esc_name}"
         st.markdown(
             f"<div class='recipient-box'>"
             f"<div class='recipient-box-title'>{label}</div>"
-            f"<div>전화번호: {info['phone']}</div>"
-            f"<div>주소: {info['address']}</div>"
+            f"<div>전화번호: {_html.escape(info['phone'])}</div>"
+            f"<div>주소: {_html.escape(info['address'])}</div>"
             f"{products_html}"
             f"</div>",
             unsafe_allow_html=True,
@@ -1690,11 +1699,11 @@ def render_admin_orders():
                         # (주문번호, 받는분이름, 받는분전화번호, 상품명) 조합으로 시트 행 번호 룩업 테이블 생성
                         # 전화번호 포함으로 동명이인·동일상품 다중수령 시 키 충돌 방지
                         col_idx = {h: i for i, h in enumerate(headers)}
-                        lookup = {}
+                        lookup = {}  # key → [row_i, ...] (중복 허용)
                         for row_i, row in enumerate(all_rows[1:], start=2):
                             def _s(c): return row[col_idx[c]] if c in col_idx and len(row) > col_idx[c] else ""
                             key = (_s("주문번호"), _s("받는분이름"), _s("받는분전화번호"), _s("상품명"))
-                            lookup[key] = row_i
+                            lookup.setdefault(key, []).append(row_i)
 
                         cells_to_save = []
                         for idx in range(len(df)):
@@ -1710,7 +1719,8 @@ def render_admin_orders():
                                 str(row_data.get("상품명",           "")),
                             )
                             if key in lookup:
-                                cells_to_save.append(gspread.Cell(lookup[key], status_col, new_status))
+                                for row_num in lookup[key]:
+                                    cells_to_save.append(gspread.Cell(row_num, status_col, new_status))
                                 saved += 1
                             else:
                                 st.warning(f"시트에서 행을 찾지 못했습니다: {key}")
@@ -1899,13 +1909,24 @@ def render_admin_logen(settings: dict):
                         col_idx    = {h: i for i, h in enumerate(headers)}
                         status_col = (headers.index("상태") + 1) if "상태" in headers else 12
                         status_idx = status_col - 1
-                        order_idx  = col_idx.get("주문번호", 0)  # 하드코딩 제거
-                        target_ids = set(filtered["주문번호"].tolist())
+                        order_idx  = col_idx.get("주문번호", 0)
+                        name_idx   = col_idx.get("받는분이름", -1)
+                        phone_idx  = col_idx.get("받는분전화번호", -1)
+                        prod_idx   = col_idx.get("상품명", -1)
+                        # 복합 키로 매칭 — 주문번호만으로는 다중 수령자 행이 의도치 않게 변경될 수 있음
+                        target_keys = set()
+                        for _, frow in filtered.iterrows():
+                            target_keys.add((
+                                str(frow.get("주문번호", "")),
+                                str(frow.get("받는분이름", "")),
+                                str(frow.get("받는분전화번호", "")),
+                                str(frow.get("상품명", "")),
+                            ))
                         cells_done = []
                         for row_idx, row in enumerate(all_rows[1:], start=2):
-                            if (len(row) > max(status_idx, order_idx)
-                                    and row[order_idx] in target_ids
-                                    and row[status_idx] not in ("발송완료", "취소")):
+                            def _sv(i): return row[i] if i >= 0 and len(row) > i else ""
+                            rkey = (_sv(order_idx), _sv(name_idx), _sv(phone_idx), _sv(prod_idx))
+                            if rkey in target_keys and _sv(status_idx) not in ("발송완료", "취소"):
                                 cells_done.append(gspread.Cell(row_idx, status_col, "발송완료"))
                         if cells_done:
                             sheet.update_cells(cells_done)
