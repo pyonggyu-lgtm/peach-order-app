@@ -1600,7 +1600,6 @@ def render_admin_orders():
                         status_col = (headers.index("상태") + 1) if "상태" in headers else 12
                         col_idx    = {h: i for i, h in enumerate(headers)}
                         # 배치 업데이트: update_cells()로 한 번의 API 호출에 처리
-                        import gspread
                         cells_to_update = []
                         for row_i, row in enumerate(all_rows[1:], start=2):
                             cur = row[col_idx["상태"]] if "상태" in col_idx and len(row) > col_idx["상태"] else ""
