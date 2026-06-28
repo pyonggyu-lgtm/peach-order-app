@@ -429,6 +429,20 @@ def save_settings(settings: dict) -> bool:
 
 
 # =============================================================================
+# 공통 상수 / 헬퍼
+# =============================================================================
+
+ORDER_STATUSES = ["대기", "입금확인", "배송준비", "배송중", "발송완료", "취소", "보관"]
+
+
+def _parse_price(raw) -> int:
+    try:
+        return int(str(raw).replace(",", "").replace("원", "").strip())
+    except (ValueError, TypeError):
+        return 0
+
+
+# =============================================================================
 # 상품 목록
 # =============================================================================
 
@@ -466,10 +480,7 @@ def load_product_prices() -> dict:
                 name = row[0].strip()
                 price = 0
                 if len(row) > 1 and row[1].strip():
-                    try:
-                        price = int(str(row[1]).replace(",", "").replace("원", "").strip())
-                    except ValueError:
-                        price = 0
+                    price = _parse_price(row[1])
                 prices[name] = price
         return prices
     except Exception:
@@ -541,10 +552,7 @@ def load_products_struct() -> list:
                 continue
             price = 0
             if ci_price is not None and len(row) > ci_price and str(row[ci_price]).strip():
-                try:
-                    price = int(str(row[ci_price]).replace(",", "").replace("원", "").strip())
-                except ValueError:
-                    price = 0
+                price = _parse_price(row[ci_price])
             status = "판매중"
             if ci_status is not None and len(row) > ci_status and str(row[ci_status]).strip():
                 status = str(row[ci_status]).strip()
@@ -609,11 +617,7 @@ def save_products(df: pd.DataFrame) -> bool:
             name = str(r.get("상품명", "") or "").strip()
             if not name:
                 continue   # 상품명 없는 빈 줄은 건너뜀
-            raw = str(r.get("단가", "") or "").replace(",", "").replace("원", "").strip()
-            try:
-                price = int(float(raw)) if raw else 0
-            except ValueError:
-                price = 0
+            price = _parse_price(r.get("단가", "") or "")
             status = str(r.get("상태", "") or "").strip() or "판매중"
             rows.append([name, price, status])
         sheet.clear()
@@ -688,6 +692,7 @@ def load_orders() -> pd.DataFrame:
 # 고객 목록
 # =============================================================================
 
+@st.cache_data(ttl=60)
 def load_customers() -> pd.DataFrame:
     """'고객목록' 시트에서 고객 정보를 DataFrame으로 반환합니다."""
     sheet = get_sheet("고객목록")
@@ -1002,6 +1007,20 @@ def generate_logen_excel(df: pd.DataFrame, farm_name: str, settings: dict) -> by
 # 사이드바 — 관리자 로그인
 # =============================================================================
 
+def _render_mode_card(title: str, subtitle: str = "", bg: str = "#1b5e20") -> None:
+    sub_html = (f"<div style='font-size:0.73rem;color:rgba(255,255,255,0.85);"
+                f"margin-top:7px;'>{subtitle}</div>") if subtitle else ""
+    st.markdown(
+        f"<div style='background:{bg};border-radius:10px;"
+        f"padding:14px 16px;text-align:center;margin:10px 0;'>"
+        f"<div style='font-size:0.72rem;color:rgba(255,255,255,0.75);"
+        f"margin-bottom:5px;letter-spacing:1px;'>현재 모드</div>"
+        f"<div style='font-size:1.25rem;font-weight:900;color:#ffffff;'>{title}</div>"
+        f"{sub_html}</div>",
+        unsafe_allow_html=True,
+    )
+
+
 def render_sidebar() -> bool:
     """
     사이드바에 관리자 비밀번호 입력 UI를 표시합니다.
@@ -1048,18 +1067,7 @@ def render_sidebar() -> bool:
 
         # ── 비밀번호 미입력: 고객 모드 ──
         if not pw:
-            st.markdown(
-                """<div style='background:#1b5e20;border-radius:10px;
-                padding:14px 16px;text-align:center;margin:10px 0;'>
-                    <div style='font-size:0.72rem;color:rgba(255,255,255,0.75);
-                    margin-bottom:5px;letter-spacing:1px;'>현재 모드</div>
-                    <div style='font-size:1.25rem;font-weight:900;color:#ffffff;'>
-                    🏠 고객 모드</div>
-                    <div style='font-size:0.73rem;color:rgba(255,255,255,0.85);
-                    margin-top:7px;'>관리자 전환 → 위 칸에 비밀번호 입력</div>
-                </div>""",
-                unsafe_allow_html=True,
-            )
+            _render_mode_card("🏠 고객 모드", "관리자 전환 → 위 칸에 비밀번호 입력")
             st.session_state["_sidebar_is_admin"] = False
             return False
 
@@ -1075,18 +1083,7 @@ def render_sidebar() -> bool:
             # 관리자 인증 완료 — force_customer 여부로 분기
             if st.session_state.get("force_customer"):
                 # ── 현재: 고객 모드 (관리자 인증 완료 상태) ──
-                st.markdown(
-                    """<div style='background:#1b5e20;border-radius:10px;
-                    padding:14px 16px;text-align:center;margin:10px 0;'>
-                        <div style='font-size:0.72rem;color:rgba(255,255,255,0.75);
-                        margin-bottom:5px;letter-spacing:1px;'>현재 모드</div>
-                        <div style='font-size:1.25rem;font-weight:900;color:#ffffff;'>
-                        🏠 고객 모드</div>
-                        <div style='font-size:0.73rem;color:rgba(255,255,255,0.85);
-                        margin-top:7px;'>✅ 관리자 인증 완료 · 아래 버튼으로 전환</div>
-                    </div>""",
-                    unsafe_allow_html=True,
-                )
+                _render_mode_card("🏠 고객 모드", "✅ 관리자 인증 완료 · 아래 버튼으로 전환")
                 if st.button("🔧 관리자 화면으로 전환 →", use_container_width=True,
                              type="primary"):
                     st.session_state["force_customer"] = False
@@ -1095,18 +1092,7 @@ def render_sidebar() -> bool:
                 return False
             else:
                 # ── 현재: 관리자 모드 ──
-                st.markdown(
-                    """<div style='background:#7f0000;border-radius:10px;
-                    padding:14px 16px;text-align:center;margin:10px 0;'>
-                        <div style='font-size:0.72rem;color:rgba(255,255,255,0.75);
-                        margin-bottom:5px;letter-spacing:1px;'>현재 모드</div>
-                        <div style='font-size:1.25rem;font-weight:900;color:#ffffff;'>
-                        🔧 관리자 모드</div>
-                        <div style='font-size:0.73rem;color:rgba(255,255,255,0.85);
-                        margin-top:7px;'>✅ 로그인 완료 · 아래 버튼으로 전환</div>
-                    </div>""",
-                    unsafe_allow_html=True,
-                )
+                _render_mode_card("🔧 관리자 모드", "✅ 로그인 완료 · 아래 버튼으로 전환", "#7f0000")
                 if st.button("🏠 고객 화면으로 전환 →", use_container_width=True):
                     st.session_state["force_customer"] = True
                     st.rerun()
@@ -1114,16 +1100,7 @@ def render_sidebar() -> bool:
                 return True
         else:
             # ── 비밀번호 틀림: 고객 모드 유지 ──
-            st.markdown(
-                """<div style='background:#1b5e20;border-radius:10px;
-                padding:14px 16px;text-align:center;margin:10px 0;'>
-                    <div style='font-size:0.72rem;color:rgba(255,255,255,0.75);
-                    margin-bottom:5px;letter-spacing:1px;'>현재 모드</div>
-                    <div style='font-size:1.25rem;font-weight:900;color:#ffffff;'>
-                    🏠 고객 모드</div>
-                </div>""",
-                unsafe_allow_html=True,
-            )
+            _render_mode_card("🏠 고객 모드")
             st.error("❌ 비밀번호가 틀렸습니다")
             st.session_state["_sidebar_is_admin"] = False
             return False
@@ -1144,6 +1121,109 @@ def _get_farm_name() -> str:
 def _empty_recipient() -> dict:
     """빈 수령자 딕셔너리를 반환합니다."""
     return {"name": "", "phone": "", "address": "", "product": "", "qty": 1, "memo": ""}
+
+
+def _render_account_box(settings: dict, header_text: str = "📌 주문 후 아래 계좌로 입금해 주세요") -> None:
+    bank   = settings.get("bank", "농협")
+    acct   = settings.get("account_number", "000-0000-0000")
+    holder = settings.get("holder", "장명숙")
+    st.markdown(
+        f"<div class='account-box'>"
+        f"<p style='margin:0 0 0.3rem 0;color:#666;'>{header_text}</p>"
+        f"<div class='bank-name'>{bank}</div>"
+        f"<div class='account-num'>{acct}</div>"
+        f"<div style='color:#555;'>예금주: <strong>{holder}</strong></div>"
+        f"<p style='font-size:0.85rem;color:#888;margin-top:0.5rem;'>"
+        f"입금자명을 주문자 성함으로 해주세요</p>"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
+
+
+def _render_self_order_form(products_struct) -> tuple:
+    """우리집 배달 모드 입력 폼. (orderer_name, orderer_phone, orderer_address, recipients) 반환"""
+    st.markdown("### 👤 주문자 정보")
+    orderer_name  = st.text_input("이름 *",      placeholder="홍길동",              key="orderer_name")
+    orderer_phone = st.text_input("전화번호 *",  placeholder="숫자만 입력 (예: 01012345678)",
+                                  key="orderer_phone",
+                                  on_change=_fmt_phone, args=("orderer_phone",))
+    address       = st.text_input("배송 주소 *", placeholder="경북 김천시 OO로 OO", key="sender_address")
+    st.markdown("### 🍑 상품 선택")
+    st.caption("원하는 품종의 수량을 입력해주세요. (0박스 = 제외)")
+    qtys = _render_product_qtys(products_struct, "qty_self_")
+    recipients = [
+        {"name": orderer_name, "phone": orderer_phone, "address": address,
+         "product": prod, "qty": qty, "memo": ""}
+        for prod, qty in qtys.items() if qty > 0
+    ]
+    return orderer_name, orderer_phone, address, recipients
+
+
+def _render_gift_order_form(products_struct, products: list) -> tuple:
+    """선물 모드 입력 폼. (orderer_name, orderer_phone, orderer_address, recipients) 반환"""
+    st.markdown("### 👤 주문자(입금자) 정보")
+    st.caption("실제 입금하시는 분의 정보입니다.")
+    orderer_name  = st.text_input("이름 *",     placeholder="홍길동",              key="orderer_name")
+    orderer_phone = st.text_input("전화번호 *", placeholder="숫자만 입력 (예: 01012345678)",
+                                  key="orderer_phone",
+                                  on_change=_fmt_phone, args=("orderer_phone",))
+
+    if "gift_rec_ids" not in st.session_state:
+        st.session_state["gift_rec_ids"]     = [0]
+        st.session_state["gift_rec_next_id"] = 1
+
+    rec_ids = st.session_state["gift_rec_ids"]
+
+    st.markdown("### 🎁 받는 분 정보")
+    st.caption(
+        "📌 받는 분의 배송 주소가 서로 다른 경우, 각 주소마다 개별 배송됩니다. "
+        "(같은 분에게 여러 상품을 보내실 때는 같은 받는 분 항목에서 수량을 올려주세요.)"
+    )
+    for idx, rid in enumerate(rec_ids):
+        with st.container():
+            if len(rec_ids) > 1:
+                col_t, col_d = st.columns([5, 1])
+                col_t.markdown(f"**📮 받는 분 {idx + 1}**")
+                if col_d.button("🗑️ 삭제", key=f"del_rec_{rid}"):
+                    st.session_state["gift_rec_ids"].remove(rid)
+                    for sfx in (["name", "phone", "address"]
+                                + [f"qty_{p}" for p in products]):
+                        st.session_state.pop(f"gr_{rid}_{sfx}", None)
+                    st.rerun()
+            else:
+                st.markdown("**📮 받는 분 정보**")
+
+            st.text_input("이름 *",      placeholder="홍길동",                     key=f"gr_{rid}_name")
+            st.text_input("전화번호 *",  placeholder="숫자만 입력 (예: 01012345678)",
+                          key=f"gr_{rid}_phone",
+                          on_change=_fmt_phone, args=(f"gr_{rid}_phone",))
+            st.text_input("배송 주소 *", placeholder="서울시 강남구 테헤란로 123", key=f"gr_{rid}_address")
+            st.caption("원하는 품종의 수량을 입력해주세요. (0박스 = 제외)")
+            _render_product_qtys(products_struct, f"gr_{rid}_qty_")
+
+        if idx < len(rec_ids) - 1:
+            st.markdown("---")
+
+    if st.button("➕ 받는 분 추가", use_container_width=False):
+        new_id = st.session_state["gift_rec_next_id"]
+        st.session_state["gift_rec_ids"].append(new_id)
+        st.session_state["gift_rec_next_id"] += 1
+        st.rerun()
+
+    recipients = []
+    for rid in st.session_state["gift_rec_ids"]:
+        r_name    = st.session_state.get(f"gr_{rid}_name",    "")
+        r_phone   = st.session_state.get(f"gr_{rid}_phone",   "")
+        r_address = st.session_state.get(f"gr_{rid}_address", "")
+        for prod in products:
+            qty = st.session_state.get(f"gr_{rid}_qty_{prod}", 0)
+            if qty > 0:
+                recipients.append({
+                    "name": r_name, "phone": r_phone,
+                    "address": r_address, "product": prod,
+                    "qty": qty, "memo": "",
+                })
+    return orderer_name, orderer_phone, "", recipients
 
 
 def render_customer_page(settings: dict, products: list, prices: dict = None):
@@ -1229,98 +1309,15 @@ def render_customer_page(settings: dict, products: list, prices: dict = None):
 
     # ── 상품 목록 (품종별 묶음 표시, 시트 순서 유지) ──
     products_struct = load_products_struct()
-    _gift_prods = products   # 선물 모드 수량 수집용
 
     if "우리집" in order_type:
-        # ── 모드 1: 본인 수령 ──
-        st.markdown("### 👤 주문자 정보")
-        orderer_name  = st.text_input("이름 *",      placeholder="홍길동",              key="orderer_name")
-        orderer_phone = st.text_input("전화번호 *",  placeholder="숫자만 입력 (예: 01012345678)",
-                                      key="orderer_phone",
-                                      on_change=_fmt_phone, args=("orderer_phone",))
-        address       = st.text_input("배송 주소 *", placeholder="경북 김천시 OO로 OO", key="sender_address")
-        st.markdown("### 🍑 상품 선택")
-        st.caption("원하는 품종의 수량을 입력해주세요. (0박스 = 제외)")
-        qtys = _render_product_qtys(products_struct, "qty_self_")
-        sender_name    = orderer_name
-        sender_phone   = orderer_phone
-        sender_address = address
-        orderer_address = address
-        recipients = [
-            {"name": orderer_name, "phone": orderer_phone, "address": address,
-             "product": prod, "qty": qty, "memo": ""}
-            for prod, qty in qtys.items() if qty > 0
-        ]
-
+        orderer_name, orderer_phone, orderer_address, recipients = _render_self_order_form(products_struct)
     else:
-        # ── 모드 2: 지인에게 선물 ──
-        st.markdown("### 👤 주문자(입금자) 정보")
-        st.caption("실제 입금하시는 분의 정보입니다.")
-        orderer_name    = st.text_input("이름 *",     placeholder="홍길동",              key="orderer_name")
-        orderer_phone   = st.text_input("전화번호 *", placeholder="숫자만 입력 (예: 01012345678)",
-                                        key="orderer_phone",
-                                        on_change=_fmt_phone, args=("orderer_phone",))
-        orderer_address = ""   # 선물 모드: 주문자 주소 불필요
+        orderer_name, orderer_phone, orderer_address, recipients = _render_gift_order_form(products_struct, products)
 
-        # ── 받는 분 목록 초기화 ──
-        if "gift_rec_ids" not in st.session_state:
-            st.session_state["gift_rec_ids"]     = [0]
-            st.session_state["gift_rec_next_id"] = 1
-
-        rec_ids = st.session_state["gift_rec_ids"]
-
-        st.markdown("### 🎁 받는 분 정보")
-        st.caption(
-            "📌 받는 분의 배송 주소가 서로 다른 경우, 각 주소마다 개별 배송됩니다. "
-            "(같은 분에게 여러 상품을 보내실 때는 같은 받는 분 항목에서 수량을 올려주세요.)"
-        )
-        for idx, rid in enumerate(rec_ids):
-            with st.container():
-                if len(rec_ids) > 1:
-                    col_t, col_d = st.columns([5, 1])
-                    col_t.markdown(f"**📮 받는 분 {idx + 1}**")
-                    if col_d.button("🗑️ 삭제", key=f"del_rec_{rid}"):
-                        st.session_state["gift_rec_ids"].remove(rid)
-                        for sfx in (["name", "phone", "address"]
-                                    + [f"qty_{p}" for p in products]):  # 전체 products로 정리
-                            st.session_state.pop(f"gr_{rid}_{sfx}", None)
-                        st.rerun()
-                else:
-                    st.markdown("**📮 받는 분 정보**")
-
-                st.text_input("이름 *",      placeholder="홍길동",                     key=f"gr_{rid}_name")
-                st.text_input("전화번호 *",  placeholder="숫자만 입력 (예: 01012345678)",
-                              key=f"gr_{rid}_phone",
-                              on_change=_fmt_phone, args=(f"gr_{rid}_phone",))
-                st.text_input("배송 주소 *", placeholder="서울시 강남구 테헤란로 123", key=f"gr_{rid}_address")
-                st.caption("원하는 품종의 수량을 입력해주세요. (0박스 = 제외)")
-                _render_product_qtys(products_struct, f"gr_{rid}_qty_")
-
-            if idx < len(rec_ids) - 1:
-                st.markdown("---")
-
-        if st.button("➕ 받는 분 추가", use_container_width=False):
-            new_id = st.session_state["gift_rec_next_id"]
-            st.session_state["gift_rec_ids"].append(new_id)
-            st.session_state["gift_rec_next_id"] += 1
-            st.rerun()
-
-        sender_name    = orderer_name
-        sender_phone   = orderer_phone
-        sender_address = orderer_address
-        recipients = []
-        for rid in st.session_state["gift_rec_ids"]:
-            r_name    = st.session_state.get(f"gr_{rid}_name",    "")
-            r_phone   = st.session_state.get(f"gr_{rid}_phone",   "")
-            r_address = st.session_state.get(f"gr_{rid}_address", "")
-            for prod in _gift_prods:
-                qty = st.session_state.get(f"gr_{rid}_qty_{prod}", 0)
-                if qty > 0:
-                    recipients.append({
-                        "name": r_name, "phone": r_phone,
-                        "address": r_address, "product": prod,
-                        "qty": qty, "memo": "",
-                    })
+    sender_name    = orderer_name
+    sender_phone   = orderer_phone
+    sender_address = orderer_address
 
     # ── 총 결제금액 합산 ──
     if prices and recipients:
@@ -1339,20 +1336,7 @@ def render_customer_page(settings: dict, products: list, prices: dict = None):
 
     # ── 계좌 안내 ──
     st.markdown("---")
-    bank   = settings.get("bank", "농협")
-    acct   = settings.get("account_number", "000-0000-0000")
-    holder = settings.get("holder", "장명숙")
-    st.markdown(
-        f"<div class='account-box'>"
-        f"<p style='margin:0 0 0.3rem 0;color:#666;'>📌 주문 후 아래 계좌로 입금해 주세요</p>"
-        f"<div class='bank-name'>{bank}</div>"
-        f"<div class='account-num'>{acct}</div>"
-        f"<div style='color:#555;'>예금주: <strong>{holder}</strong></div>"
-        f"<p style='font-size:0.85rem;color:#888;margin-top:0.5rem;'>"
-        f"입금자명을 주문자 성함으로 해주세요</p>"
-        f"</div>",
-        unsafe_allow_html=True,
-    )
+    _render_account_box(settings)
 
     # ── 주문 제출 버튼 ──
     if st.button("🍑 주문 완료하기", use_container_width=True, type="primary"):
@@ -1492,18 +1476,7 @@ def _render_order_complete(settings: dict, farm_name: str):
     )
 
     # 계좌 안내 재표시
-    bank   = settings.get("bank", "농협")
-    acct   = settings.get("account_number", "000-0000-0000")
-    holder = settings.get("holder", "장명숙")
-    st.markdown(
-        f"<div class='account-box'>"
-        f"<p style='margin:0 0 0.3rem 0;color:#666;'>💳 아래 계좌로 입금해 주세요</p>"
-        f"<div class='bank-name'>{bank}</div>"
-        f"<div class='account-num'>{acct}</div>"
-        f"<div style='color:#555;'>예금주: <strong>{holder}</strong></div>"
-        f"</div>",
-        unsafe_allow_html=True,
-    )
+    _render_account_box(settings, "💳 아래 계좌로 입금해 주세요")
 
     # 주문 내역 요약 — 같은 수령자의 상품을 묶어서 표시
     st.markdown("#### 📋 주문 내역 요약")
@@ -1556,7 +1529,7 @@ def render_admin_orders():
         return
 
     # ── 상태 값 정규화 (지표 계산 전에 먼저 실행) ──
-    valid_statuses = ["대기", "입금확인", "배송준비", "배송중", "발송완료", "취소", "보관"]
+    valid_statuses = ORDER_STATUSES
     if "상태" in df.columns:
         # 알 수 없는 값 → "대기"
         df["상태"] = df["상태"].apply(lambda x: x if x in valid_statuses else "대기")
@@ -1599,7 +1572,7 @@ def render_admin_orders():
     with fc2:
         status_view = st.selectbox(
             "상태 필터",
-            options=["현재(보관제외)", "전체", "대기", "입금확인", "배송준비", "배송중", "발송완료", "취소", "보관"],
+            options=["현재(보관제외)", "전체"] + ORDER_STATUSES,
             index=0,
             key="order_status_filter",
         )
@@ -1675,7 +1648,7 @@ def render_admin_orders():
             "주문자주소":     st.column_config.TextColumn("보내는분주소",     disabled=True),
             "상태": st.column_config.SelectboxColumn(
                 "상태",
-                options=["대기", "입금확인", "배송준비", "배송중", "발송완료", "취소", "보관"],
+                options=ORDER_STATUSES,
             ),
         },
         key="orders_editor",
@@ -2123,13 +2096,7 @@ def render_admin_settings(settings: dict):
     )
     prod_df = load_products_full()
     if not prod_df.empty:
-        prod_df["단가"] = (
-            pd.to_numeric(
-                prod_df["단가"].astype(str).str.replace(",", "", regex=False)
-                                          .str.replace("원", "", regex=False).str.strip(),
-                errors="coerce",
-            ).fillna(0).astype(int)
-        )
+        prod_df["단가"] = prod_df["단가"].apply(_parse_price)
     edited_prod = st.data_editor(
         prod_df,
         num_rows="dynamic",
