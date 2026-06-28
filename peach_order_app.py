@@ -1525,37 +1525,39 @@ def render_admin_orders():
         return
 
     # ── 상태 값 정규화 (지표 계산 전에 먼저 실행) ──
-    valid_statuses = ["대기", "입금확인", "배송준비", "배송중", "발송완료", "취소"]
+    valid_statuses = ["대기", "입금확인", "배송준비", "배송중", "발송완료", "취소", "보관"]
     if "상태" in df.columns:
         # 알 수 없는 값 → "대기"
         df["상태"] = df["상태"].apply(lambda x: x if x in valid_statuses else "대기")
 
-    # ── 지표 ──
-    # "전체 주문"은 고유 주문번호 기준 (상품 2개 주문해도 1건으로 카운트)
-    total    = int(df["주문번호"].nunique()) if "주문번호" in df.columns else len(df)
-    waiting  = int((df["상태"] == "대기").sum())     if "상태" in df.columns else 0
-    confirm  = int((df["상태"] == "입금확인").sum()) if "상태" in df.columns else 0
-    shipped  = int((df["상태"].isin(["배송중", "발송완료"])).sum()) if "상태" in df.columns else 0
-    canceled = int((df["상태"] == "취소").sum())     if "상태" in df.columns else 0
+    # ── 지표 (보관 제외한 현재 시즌 기준) ──
+    active_df = df[df["상태"] != "보관"] if "상태" in df.columns else df
+    total    = int(active_df["주문번호"].nunique()) if "주문번호" in active_df.columns else len(active_df)
+    waiting  = int((active_df["상태"] == "대기").sum())     if "상태" in active_df.columns else 0
+    confirm  = int((active_df["상태"] == "입금확인").sum()) if "상태" in active_df.columns else 0
+    shipped  = int((active_df["상태"].isin(["배송중", "발송완료"])).sum()) if "상태" in active_df.columns else 0
+    canceled = int((active_df["상태"] == "취소").sum())     if "상태" in active_df.columns else 0
+    archived = int((df["상태"] == "보관").sum())             if "상태" in df.columns else 0
 
     # ── 총매출 계산 (입금확인 + 배송 관련 상태 기준) ──
     revenue = 0
     prices  = load_product_prices()
-    if prices and "상품명" in df.columns and "수량" in df.columns and "상태" in df.columns:
-        paid_df = df[df["상태"].isin(["입금확인","배송준비","배송중","발송완료"])].copy()
+    if prices and "상품명" in active_df.columns and "수량" in active_df.columns and "상태" in active_df.columns:
+        paid_df = active_df[active_df["상태"].isin(["입금확인","배송준비","배송중","발송완료"])].copy()
         paid_df["수량_n"] = pd.to_numeric(paid_df["수량"], errors="coerce").fillna(0).astype(int)
         paid_df["단가"]   = paid_df["상품명"].map(prices).fillna(0).astype(int)
         revenue = int((paid_df["수량_n"] * paid_df["단가"]).sum())
 
     revenue_str = f"{revenue:,}원" if revenue > 0 else "단가 미설정"
 
-    c1, c2, c3, c4, c5, c6 = st.columns(6)
-    _metric_card(c1, "전체 주문",  total,        "#ff8c42")
+    c1, c2, c3, c4, c5, c6, c7 = st.columns(7)
+    _metric_card(c1, "현재 주문",  total,        "#ff8c42")
     _metric_card(c2, "대기",       waiting,      "#ffc107")
     _metric_card(c3, "입금확인",   confirm,      "#2196f3")
     _metric_card(c4, "발송완료",   shipped,      "#4caf50")
     _metric_card(c5, "취소",       canceled,     "#9e9e9e")
     _metric_card(c6, "총매출(입금)", revenue_str, "#7b1fa2")
+    _metric_card(c7, "보관(이전)",  archived,    "#78909c")
 
     st.markdown("---")
 
@@ -1566,10 +1568,39 @@ def render_admin_orders():
     with fc2:
         status_view = st.selectbox(
             "상태 필터",
-            options=["전체", "대기", "입금확인", "배송준비", "배송중", "발송완료", "취소"],
+            options=["현재(보관제외)", "전체", "대기", "입금확인", "배송준비", "배송중", "발송완료", "취소", "보관"],
             index=0,
             key="order_status_filter",
         )
+
+    # ── 이전 시즌 전체 보관처리 버튼 ──
+    with st.expander("📦 이전 시즌 주문 보관처리"):
+        st.caption("현재 시즌 주문이 끝난 후, 기존 주문 전체를 '보관' 상태로 바꿔 새 시즌 주문과 구분합니다. 보관된 데이터는 '보관' 필터로 언제든 조회할 수 있습니다.")
+        if st.button("📦 현재 활성 주문 전체 보관처리", type="secondary", use_container_width=True):
+            sheet = get_sheet("주문목록")
+            if sheet:
+                try:
+                    all_rows = sheet.get_all_values()
+                    if all_rows:
+                        headers    = all_rows[0]
+                        status_col = (headers.index("상태") + 1) if "상태" in headers else 12
+                        col_idx    = {h: i for i, h in enumerate(headers)}
+                        archived_count = 0
+                        for row_i, row in enumerate(all_rows[1:], start=2):
+                            cur = row[col_idx["상태"]] if "상태" in col_idx and len(row) > col_idx["상태"] else ""
+                            if cur not in ("보관", "취소", ""):
+                                sheet.update_cell(row_i, status_col, "보관")
+                                archived_count += 1
+                        if archived_count:
+                            st.success(f"✅ {archived_count}건을 보관 처리했습니다. 새 시즌 주문을 받을 준비가 됐습니다!")
+                            load_orders.clear()
+                            st.rerun()
+                        else:
+                            st.info("보관 처리할 활성 주문이 없습니다.")
+                except Exception as e:
+                    st.error(f"보관 처리 실패: {e}")
+            else:
+                st.error("Google Sheets 연결 실패")
 
     # ── 검색 + 상태 필터 적용 ──
     if search_name.strip():
@@ -1578,7 +1609,9 @@ def render_admin_orders():
             if col in df.columns:
                 mask |= df[col].str.contains(search_name.strip(), na=False)
         df = df[mask]
-    if status_view != "전체" and "상태" in df.columns:
+    if status_view == "현재(보관제외)" and "상태" in df.columns:
+        df = df[df["상태"] != "보관"]
+    elif status_view != "전체" and "상태" in df.columns:
         df = df[df["상태"] == status_view]
 
     # ── 최신순 정렬 ──
@@ -1610,7 +1643,7 @@ def render_admin_orders():
             "주문자주소":     st.column_config.TextColumn("보내는분주소",     disabled=True),
             "상태": st.column_config.SelectboxColumn(
                 "상태",
-                options=["대기", "입금확인", "배송준비", "배송중", "발송완료", "취소"],
+                options=["대기", "입금확인", "배송준비", "배송중", "발송완료", "취소", "보관"],
             ),
         },
         key="orders_editor",
