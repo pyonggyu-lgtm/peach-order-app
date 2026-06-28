@@ -465,8 +465,8 @@ def load_product_prices() -> dict:
 
 @st.cache_data(ttl=60)
 def load_products_full() -> pd.DataFrame:
-    """'상품목록' 시트 전체를 [상품명, 단가, 설명] DataFrame으로 반환합니다."""
-    cols = ["상품명", "단가", "설명"]
+    """'상품목록' 시트 전체를 [상품명, 단가, 설명, 상태] DataFrame으로 반환합니다."""
+    cols = ["상품명", "단가", "설명", "상태"]
     sheet = get_sheet("상품목록")
     if sheet is None:
         return pd.DataFrame(columns=cols)
@@ -482,10 +482,96 @@ def load_products_full() -> pd.DataFrame:
         df = df[cols].astype(str)
         # 빈 값(None/nan 문자열 포함)을 빈칸으로 정리하고, 상품명 없는 줄은 제외
         df = df.replace({"None": "", "nan": "", "NaN": ""})
+        # 상태가 비어 있으면 '판매중'으로 기본 표시
+        df.loc[df["상태"].str.strip() == "", "상태"] = "판매중"
         df = df[df["상품명"].str.strip() != ""].reset_index(drop=True)
         return df
     except Exception:
         return pd.DataFrame(columns=cols)
+
+
+@st.cache_data(ttl=60)
+def load_products_struct() -> list:
+    """
+    상품을 시트 순서대로 구조화해 반환합니다.
+    각 항목: {상품명, 단가, 상태, 품종, 용도}
+    - 품종 = 상품명 첫 단어(예: '아마쯔쿠시 4kg 선물용' → '아마쯔쿠시')
+    - 용도 = 선물용 / 일반용
+    - 상태 = 판매중 / 마감 (없으면 판매중)
+    """
+    def _mk(name, price=0, status="판매중"):
+        name = str(name).strip()
+        toks = name.split()
+        variety = toks[0] if toks else name
+        usage = "선물용" if "선물용" in name else ("일반용" if "일반용" in name else "기타")
+        return {"상품명": name, "단가": price, "상태": (status or "판매중").strip() or "판매중",
+                "품종": variety, "용도": usage}
+
+    default = [_mk("수황 4kg 선물용", 40000), _mk("수황 4kg 일반용", 35000)]
+    sheet = get_sheet("상품목록")
+    if sheet is None:
+        return default
+    try:
+        rows = sheet.get_all_values()
+        if len(rows) < 2:
+            return default
+        header = [str(h).strip() for h in rows[0]]
+        ci_name   = header.index("상품명") if "상품명" in header else 0
+        ci_price  = header.index("단가")   if "단가"   in header else 1
+        ci_status = header.index("상태")   if "상태"   in header else None
+        items = []
+        for row in rows[1:]:
+            if len(row) <= ci_name:
+                continue
+            name = str(row[ci_name]).strip()
+            if not name:
+                continue
+            price = 0
+            if ci_price is not None and len(row) > ci_price and str(row[ci_price]).strip():
+                try:
+                    price = int(str(row[ci_price]).replace(",", "").replace("원", "").strip())
+                except ValueError:
+                    price = 0
+            status = "판매중"
+            if ci_status is not None and len(row) > ci_status and str(row[ci_status]).strip():
+                status = str(row[ci_status]).strip()
+            items.append(_mk(name, price, status))
+        return items or default
+    except Exception:
+        return default
+
+
+def _render_product_qtys(products_struct, key_prefix):
+    """
+    품종별로 묶어 수량 입력칸을 렌더링합니다.
+    - 품종 순서는 상품목록 시트의 등장 순서 유지
+    - 품종 안에서 선물용 → 일반용 순
+    - 상태가 '마감'이면 회색(품절)으로 입력 차단
+    위젯 key = f"{key_prefix}{상품명}", 반환값 = {상품명: 수량}
+    """
+    qtys = {}
+    varieties = []
+    for p in products_struct:
+        if p["품종"] not in varieties:
+            varieties.append(p["품종"])
+    for v in varieties:
+        group = [p for p in products_struct if p["품종"] == v]
+        group.sort(key=lambda p: 0 if p["용도"] == "선물용" else 1 if p["용도"] == "일반용" else 2)
+        sold_out = all(p["상태"] == "마감" for p in group)
+        head = f"🍑 {v}" + ("　—　마감(품절)" if sold_out else "")
+        st.markdown(f"**{head}**")
+        for p in group:
+            name = p["상품명"]
+            toks = name.split(maxsplit=1)
+            short = toks[1] if len(toks) > 1 else name   # 예: '4kg 선물용'
+            if p["상태"] == "마감":
+                st.number_input(f"{short}  (마감)", min_value=0, max_value=0,
+                                value=0, step=1, key=f"{key_prefix}{name}", disabled=True)
+                qtys[name] = 0
+            else:
+                qtys[name] = st.number_input(f"{short}  (박스)", min_value=0, max_value=99,
+                                             value=0, step=1, key=f"{key_prefix}{name}")
+    return qtys
 
 
 def save_products(df: pd.DataFrame) -> bool:
@@ -494,7 +580,7 @@ def save_products(df: pd.DataFrame) -> bool:
     if sheet is None:
         return False
     try:
-        rows = [["상품명", "단가", "설명"]]
+        rows = [["상품명", "단가", "설명", "상태"]]
         for _, r in df.iterrows():
             name = str(r.get("상품명", "") or "").strip()
             if not name:
@@ -504,8 +590,9 @@ def save_products(df: pd.DataFrame) -> bool:
                 price = int(float(raw)) if raw else 0
             except ValueError:
                 price = 0
-            desc = str(r.get("설명", "") or "").strip()
-            rows.append([name, price, desc])
+            desc   = str(r.get("설명", "") or "").strip()
+            status = str(r.get("상태", "") or "").strip() or "판매중"
+            rows.append([name, price, desc, status])
         sheet.clear()
         sheet.update("A1", rows)
         return True
@@ -776,25 +863,39 @@ def generate_logen_excel(df: pd.DataFrame, farm_name: str, settings: dict) -> by
     if "수량" in df.columns:
         df["수량"] = pd.to_numeric(df["수량"], errors="coerce").fillna(1).astype(int)
 
-    # ── 상품 종류 분류: 상품명에 '선물용'이 있으면 선물용, 아니면 일반용 ──
+    # ── 상품명에서 품종(약칭)·용도 분류 ──
+    def _variety_abbr(s):
+        s = str(s).strip()
+        v = s.split()[0] if s.split() else s   # 첫 토큰 = 품종
+        return v[:2]                           # 약칭 (아마쯔쿠시→아마, 경봉→경봉)
+    def _usage(s):
+        return "선물" if "선물용" in str(s) else ("일반" if "일반용" in str(s) else "")
     if "상품명" in df.columns:
-        df["_종류"] = df["상품명"].apply(lambda s: "선물용" if "선물용" in str(s) else "일반용")
+        df["_품종"] = df["상품명"].apply(_variety_abbr)
+        df["_용도"] = df["상품명"].apply(_usage)
     else:
-        df["_종류"] = "일반용"
+        df["_품종"], df["_용도"] = "", ""
 
-    # ── 수신자 기준 그룹화: 선물용/일반용 수량을 각각 합산 ──
+    # ── 품종·용도별 총 발송 집계 (전체 합계) ──
+    total_summary = ""
+    if "수량" in df.columns and "상품명" in df.columns:
+        tot = df.groupby(["_품종", "_용도"], sort=False)["수량"].sum()
+        parts = [f"{v}-{u}-{int(q)}박스" for (v, u), q in tot.items() if int(q) > 0 and u]
+        total_summary = ", ".join(parts)
+
+    # ── 수신자별 주문내역 요약 문자열 ──
+    def _order_summary(g):
+        agg = g.groupby(["_품종", "_용도"], sort=False)["수량"].sum()
+        return " · ".join(f"{v}-{u} {int(q)}" for (v, u), q in agg.items() if int(q) > 0 and u)
+
+    # ── 수신자 기준 그룹화 (대표행 + 주문내역 요약) ──
     group_keys = [k for k in ["받는분이름", "받는분주소", "받는분전화번호"] if k in df.columns]
     if group_keys and "수량" in df.columns:
-        other_cols  = [c for c in df.columns if c not in group_keys + ["수량", "_종류"]]
-        first_row   = df.groupby(group_keys, sort=False)[other_cols].first().reset_index()
-        qty_by_kind = df.groupby(group_keys + ["_종류"], sort=False)["수량"].sum().reset_index()
-        gift_q = (qty_by_kind[qty_by_kind["_종류"] == "선물용"]
-                  .drop(columns="_종류").rename(columns={"수량": "선물용수량"}))
-        norm_q = (qty_by_kind[qty_by_kind["_종류"] == "일반용"]
-                  .drop(columns="_종류").rename(columns={"수량": "일반용수량"}))
-        df = first_row.merge(gift_q, on=group_keys, how="left").merge(norm_q, on=group_keys, how="left")
-        df["선물용수량"] = df["선물용수량"].fillna(0).astype(int)
-        df["일반용수량"] = df["일반용수량"].fillna(0).astype(int)
+        other_cols = [c for c in df.columns if c not in group_keys + ["수량"]]
+        first_row  = df.groupby(group_keys, sort=False)[other_cols].first().reset_index()
+        summ = (df.groupby(group_keys, sort=False)
+                  .apply(_order_summary).reset_index(name="_주문내역"))
+        df = first_row.merge(summ, on=group_keys, how="left")
 
     # ── 엑셀 생성 ──
     wb = Workbook()
@@ -812,29 +913,26 @@ def generate_logen_excel(df: pd.DataFrame, farm_name: str, settings: dict) -> by
     ws["A1"].alignment = Alignment(wrap_text=True, vertical="top")
     ws.row_dimensions[1].height = 60
 
-    # 행2: 컬럼 헤더
-    headers = ["수하인이름", "수하인주소", "수하인연락처", "선물용", "일반용", "송하인명", "송하인주소", "송하인연락처", "배송메모"]
+    # 행2: 총 발송 집계
+    ws["A2"] = f"■ 총 발송: {total_summary}" if total_summary else "■ 총 발송: (주문 없음)"
+    ws["A2"].font = Font(bold=True, color="C00000")
+    ws["A2"].alignment = Alignment(horizontal="left", vertical="center")
+    ws.row_dimensions[2].height = 20
+
+    # 행3: 컬럼 헤더
+    headers = ["수하인이름", "수하인주소", "수하인연락처", "주문내역", "송하인명", "송하인주소", "송하인연락처", "배송메모"]
     hdr_fill = PatternFill(start_color="FFF2CC", end_color="FFF2CC", fill_type="solid")
     for c_idx, hdr in enumerate(headers, 1):
-        cell = ws.cell(row=2, column=c_idx, value=hdr)
+        cell = ws.cell(row=3, column=c_idx, value=hdr)
         cell.font = Font(bold=True)
         cell.fill = hdr_fill
         cell.alignment = Alignment(horizontal="center")
 
-    # 행3+: 데이터
+    # 행4+: 데이터
     def _g(row_data, col):
         return row_data.get(col, "") if col in df.columns else ""
 
-    def _qty(row_data, col):
-        # 수량을 정수로 변환, 0개는 공란("")으로 표기
-        v = row_data.get(col, 0) if col in df.columns else 0
-        try:
-            v = int(v)
-        except Exception:
-            v = 0
-        return v if v > 0 else ""
-
-    for r_idx, (_, row_data) in enumerate(df.iterrows(), 3):
+    for r_idx, (_, row_data) in enumerate(df.iterrows(), 4):
         # 본인용 주문(우리집 배달) 판별: 주문자 = 받는분(이름·전화번호 동일)
         is_self_delivery = (
             str(_g(row_data, "주문자이름")).strip() == str(_g(row_data, "받는분이름")).strip()
@@ -844,16 +942,15 @@ def generate_logen_excel(df: pd.DataFrame, farm_name: str, settings: dict) -> by
         ws.cell(row=r_idx, column=1, value=_g(row_data, "받는분이름"))
         ws.cell(row=r_idx, column=2, value=_g(row_data, "받는분주소"))
         ws.cell(row=r_idx, column=3, value=_g(row_data, "받는분전화번호"))
-        ws.cell(row=r_idx, column=4, value=_qty(row_data, "선물용수량"))    # 선물용 개수
-        ws.cell(row=r_idx, column=5, value=_qty(row_data, "일반용수량"))    # 일반용 개수
+        ws.cell(row=r_idx, column=4, value=_g(row_data, "_주문내역"))        # 주문내역 요약
         # 선물 주문만 송하인 이름·전화번호 표기 / 본인용은 공란 / 송하인주소는 전체 공란
-        ws.cell(row=r_idx, column=6, value="" if is_self_delivery else _g(row_data, "주문자이름"))      # 송하인명
-        ws.cell(row=r_idx, column=7, value="")                                                          # 송하인주소 = 공란
-        ws.cell(row=r_idx, column=8, value="" if is_self_delivery else _g(row_data, "주문자전화번호"))  # 송하인연락처
-        ws.cell(row=r_idx, column=9, value=_g(row_data, "배송메모"))         # 배송메모
+        ws.cell(row=r_idx, column=5, value="" if is_self_delivery else _g(row_data, "주문자이름"))      # 송하인명
+        ws.cell(row=r_idx, column=6, value="")                                                          # 송하인주소 = 공란
+        ws.cell(row=r_idx, column=7, value="" if is_self_delivery else _g(row_data, "주문자전화번호"))  # 송하인연락처
+        ws.cell(row=r_idx, column=8, value=_g(row_data, "배송메모"))         # 배송메모
 
     # 컬럼 너비
-    col_widths = [16, 36, 16, 7, 7, 14, 30, 16, 24]
+    col_widths = [16, 36, 16, 34, 14, 12, 16, 22]
     for c_idx, width in enumerate(col_widths, 1):
         ws.column_dimensions[get_column_letter(c_idx)].width = width
 
@@ -1132,9 +1229,9 @@ def render_customer_page(settings: dict, products: list, prices: dict = None):
 
     st.markdown("---")
 
-    # ── 상품 목록: 두 모드 모두 전체 상품 표시 ──
-    # (일반용/선물용 구분 없이 주문자가 원하는 상품을 자유롭게 선택)
-    _gift_prods = products
+    # ── 상품 목록 (품종별 묶음 표시, 시트 순서 유지) ──
+    products_struct = load_products_struct()
+    _gift_prods = products   # 이름 목록 (정리/집계용)
     _self_prods = products
 
     if "우리집" in order_type:
@@ -1146,10 +1243,8 @@ def render_customer_page(settings: dict, products: list, prices: dict = None):
                                       on_change=_fmt_phone, args=("orderer_phone",))
         address       = st.text_input("배송 주소 *", placeholder="경북 김천시 OO로 OO", key="sender_address")
         st.markdown("### 🍑 상품 선택")
-        st.caption("원하는 상품의 수량을 입력해주세요. (0박스 = 제외)")
-        qtys = {}
-        for prod in _self_prods:
-            qtys[prod] = st.number_input(f"{prod} (박스)", min_value=0, max_value=99, value=0, step=1, key=f"qty_self_{prod}")
+        st.caption("원하는 품종의 수량을 입력해주세요. (0박스 = 제외)")
+        qtys = _render_product_qtys(products_struct, "qty_self_")
         memo = st.text_input("배송 메모 (선택)", key="rmemo_self", placeholder="경비실 맡겨주세요")
         sender_name    = orderer_name
         sender_phone   = orderer_phone
@@ -1202,10 +1297,8 @@ def render_customer_page(settings: dict, products: list, prices: dict = None):
                               key=f"gr_{rid}_phone",
                               on_change=_fmt_phone, args=(f"gr_{rid}_phone",))
                 st.text_input("배송 주소 *", placeholder="서울시 강남구 테헤란로 123", key=f"gr_{rid}_address")
-                st.caption("원하는 상품의 수량을 입력해주세요. (0박스 = 제외)")
-                for prod in _gift_prods:
-                    st.number_input(f"{prod} (박스)", min_value=0, max_value=99,
-                                    value=0, step=1, key=f"gr_{rid}_qty_{prod}")
+                st.caption("원하는 품종의 수량을 입력해주세요. (0박스 = 제외)")
+                _render_product_qtys(products_struct, f"gr_{rid}_qty_")
                 st.text_input("배송 메모 (선택)", placeholder="경비실 맡겨주세요",
                               key=f"gr_{rid}_memo")
 
@@ -1630,48 +1723,23 @@ def render_admin_orders():
 # =============================================================================
 
 def render_admin_period(settings: dict):
-    """주문 기간 설정 탭: 날짜/시간 입력 + 즉시 열기/닫기"""
-    st.markdown("### ⏰ 주문 기간 설정")
+    """주문 열기/닫기 탭: 즉시 열기(7일 후 자동마감) / 즉시 닫기"""
+    st.markdown("### ⏰ 주문 열기 / 닫기")
 
-    status, _, _ = check_order_period(settings)
+    status, _, end_dt = check_order_period(settings)
     labels = {"before": "⏳ 주문 시작 전", "open": "✅ 주문 접수 중", "closed": "🚫 주문 마감"}
     st.info(f"현재 상태: **{labels.get(status, '알 수 없음')}**")
+    if status == "open" and end_dt is not None:
+        st.caption(f"⏳ 자동 마감 예정: {end_dt.strftime('%Y-%m-%d %H:%M')}")
 
-    col1, col2 = st.columns(2)
-    with col1:
-        st.markdown("**📅 주문 시작**")
-        try:
-            d_start = datetime.strptime(settings.get("order_start", "2026-07-01 09:00"), "%Y-%m-%d %H:%M")
-        except ValueError:
-            d_start = datetime(2026, 7, 1, 9, 0)
-        start_date = st.date_input("시작 날짜", value=d_start.date(), key="pd_start_date")
-        start_time = st.time_input("시작 시간", value=d_start.time(), key="pd_start_time")
+    st.markdown(
+        "주문을 받을 때 **[지금 바로 열기]**, 끝나면 **[지금 바로 닫기]**를 누르세요.\n\n"
+        "특정 품종만 마감하려면 **[설정] 탭의 상품 관리**에서 그 품종을 '마감'으로 바꾸면 됩니다."
+    )
 
-    with col2:
-        st.markdown("**📅 주문 마감**")
-        try:
-            d_end = datetime.strptime(settings.get("order_end", "2026-07-10 18:00"), "%Y-%m-%d %H:%M")
-        except ValueError:
-            d_end = datetime(2026, 7, 10, 18, 0)
-        end_date = st.date_input("마감 날짜", value=d_end.date(), key="pd_end_date")
-        end_time = st.time_input("마감 시간", value=d_end.time(), key="pd_end_time")
-
-    st.markdown("---")
-    ca, cb, cc = st.columns(3)
-
-    with ca:
-        if st.button("💾 기간 저장", use_container_width=True):
-            settings["order_start"] = f"{start_date} {start_time.strftime('%H:%M')}"
-            settings["order_end"]   = f"{end_date} {end_time.strftime('%H:%M')}"
-            if save_settings(settings):
-                load_settings.clear()
-                st.success("✅ 주문 기간이 저장되었습니다.")
-                st.rerun()
-            else:
-                st.error("저장에 실패했습니다. Google Sheets 연결을 확인해주세요.")
-
+    cb, cc = st.columns(2)
     with cb:
-        if st.button("🟢 지금 바로 열기", use_container_width=True):
+        if st.button("🟢 지금 바로 열기 (7일 후 자동마감)", use_container_width=True, type="primary"):
             now = datetime.now()
             settings["order_start"] = now.strftime("%Y-%m-%d %H:%M")
             settings["order_end"]   = (now + timedelta(days=7)).strftime("%Y-%m-%d %H:%M")
@@ -2005,8 +2073,9 @@ def render_admin_settings(settings: dict):
     st.markdown("---")
     st.markdown("**상품 / 단가 관리**")
     st.caption(
-        "상품명·단가·설명을 직접 수정하세요. "
+        "상품명은 '품종 4kg 선물용/일반용' 형식으로 입력하세요 (예: 아마쯔쿠시 4kg 선물용). "
         "맨 아래 빈 줄에 입력하면 상품이 추가되고, 줄 왼쪽을 선택해 삭제할 수 있습니다. "
+        "특정 품종을 그만 받으려면 '상태'를 마감으로 바꾸세요. "
         "수정 후 반드시 아래 [상품·단가 저장] 버튼을 눌러주세요."
     )
     prod_df = load_products_full()
@@ -2026,6 +2095,7 @@ def render_admin_settings(settings: dict):
             "상품명": st.column_config.TextColumn("상품명", required=True),
             "단가":   st.column_config.NumberColumn("단가(원)", min_value=0, step=1000, format="%d"),
             "설명":   st.column_config.TextColumn("설명"),
+            "상태":   st.column_config.SelectboxColumn("상태", options=["판매중", "마감"], default="판매중", required=True),
         },
         key="products_editor",
     )
@@ -2034,6 +2104,7 @@ def render_admin_settings(settings: dict):
             load_products.clear()
             load_product_prices.clear()
             load_products_full.clear()
+            load_products_struct.clear()
             st.success("상품 정보가 저장되었습니다.")
             st.rerun()
         else:
