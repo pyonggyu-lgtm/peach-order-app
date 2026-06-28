@@ -557,8 +557,15 @@ def _render_product_qtys(products_struct, key_prefix):
     for v in varieties:
         group = [p for p in products_struct if p["품종"] == v]
         group.sort(key=lambda p: 0 if p["용도"] == "선물용" else 1 if p["용도"] == "일반용" else 2)
-        sold_out = all(p["상태"] == "마감" for p in group)
-        head = f"🍑 {v}" + ("　—　마감(품절)" if sold_out else "")
+        all_closed  = all(p["상태"] == "마감" for p in group)
+        all_unavail = all(p["상태"] in ("마감", "예정") for p in group)
+        if all_closed:
+            head_suffix = "　—　마감(품절)"
+        elif all_unavail:
+            head_suffix = "　—　판매예정"
+        else:
+            head_suffix = ""
+        head = f"🍑 {v}" + head_suffix
         st.markdown(f"**{head}**")
         for p in group:
             name = p["상품명"]
@@ -566,6 +573,10 @@ def _render_product_qtys(products_struct, key_prefix):
             short = toks[1] if len(toks) > 1 else name   # 예: '4kg 선물용'
             if p["상태"] == "마감":
                 st.number_input(f"{short}  (마감)", min_value=0, max_value=0,
+                                value=0, step=1, key=f"{key_prefix}{name}", disabled=True)
+                qtys[name] = 0
+            elif p["상태"] == "예정":
+                st.number_input(f"{short}  (판매예정)", min_value=0, max_value=0,
                                 value=0, step=1, key=f"{key_prefix}{name}", disabled=True)
                 qtys[name] = 0
             else:
@@ -841,7 +852,7 @@ def generate_logen_excel(df: pd.DataFrame, farm_name: str, settings: dict) -> by
 
     행1 : 농장정보 텍스트 (A1 셀)
     행2 : 총 발송 집계 (품종·용도별 합계)
-    행3 : 컬럼 헤더 — 수하인이름/수하인주소/수하인연락처/주문내역/송하인명/송하인주소/송하인연락처/배송메모
+    행3 : 컬럼 헤더 — 수하인이름/수하인주소/수하인연락처/선물용/일반용/합계/송하인명/송하인주소/송하인연락처
     행4+: 데이터 (수신자 기준 그룹화, 주문내역 요약)
     취소 상태는 자동으로 제외됩니다.
     """
@@ -884,25 +895,21 @@ def generate_logen_excel(df: pd.DataFrame, farm_name: str, settings: dict) -> by
         parts = [f"{v}-{u}-{int(q)}박스" for (v, u), q in tot.items() if int(q) > 0 and u]
         total_summary = ", ".join(parts)
 
-    # ── 수신자별 주문내역 요약 문자열 ──
-    def _order_summary(g):
-        agg = g.groupby(["_품종", "_용도"], sort=False)["수량"].sum()
-        return " · ".join(f"{v}-{u} {int(q)}" for (v, u), q in agg.items() if int(q) > 0 and u)
-
-    # ── 수신자 기준 그룹화 (대표행 + 주문내역 요약) ──
+    # ── 수신자 기준 그룹화 (대표행 + 선물용/일반용 수량 집계) ──
     group_keys = [k for k in ["받는분이름", "받는분주소", "받는분전화번호"] if k in df.columns]
     if group_keys and "수량" in df.columns:
-        other_cols = [c for c in df.columns if c not in group_keys + ["수량"]]
+        other_cols = [c for c in df.columns if c not in group_keys + ["수량", "_용도", "_품종"]]
         first_row  = df.groupby(group_keys, sort=False)[other_cols].first().reset_index()
-        try:
-            summ = (df.groupby(group_keys, sort=False)
-                      .apply(_order_summary, include_groups=False)
-                      .reset_index(name="_주문내역"))
-        except TypeError:
-            summ = (df.groupby(group_keys, sort=False)
-                      .apply(_order_summary)
-                      .reset_index(name="_주문내역"))
-        df = first_row.merge(summ, on=group_keys, how="left")
+        gift_qty    = (df[df["_용도"] == "선물"].groupby(group_keys, sort=False)["수량"]
+                       .sum().reset_index(name="_선물용"))
+        general_qty = (df[df["_용도"] == "일반"].groupby(group_keys, sort=False)["수량"]
+                       .sum().reset_index(name="_일반용"))
+        df = (first_row
+              .merge(gift_qty,    on=group_keys, how="left")
+              .merge(general_qty, on=group_keys, how="left"))
+        df["_선물용"] = df["_선물용"].fillna(0).astype(int)
+        df["_일반용"] = df["_일반용"].fillna(0).astype(int)
+        df["_합계"]   = df["_선물용"] + df["_일반용"]
 
     # ── 엑셀 생성 ──
     wb = Workbook()
@@ -927,7 +934,7 @@ def generate_logen_excel(df: pd.DataFrame, farm_name: str, settings: dict) -> by
     ws.row_dimensions[2].height = 20
 
     # 행3: 컬럼 헤더
-    headers = ["수하인이름", "수하인주소", "수하인연락처", "주문내역", "송하인명", "송하인주소", "송하인연락처"]
+    headers = ["수하인이름", "수하인주소", "수하인연락처", "선물용", "일반용", "합계", "송하인명", "송하인주소", "송하인연락처"]
     hdr_fill = PatternFill(start_color="FFF2CC", end_color="FFF2CC", fill_type="solid")
     for c_idx, hdr in enumerate(headers, 1):
         cell = ws.cell(row=3, column=c_idx, value=hdr)
@@ -949,14 +956,18 @@ def generate_logen_excel(df: pd.DataFrame, farm_name: str, settings: dict) -> by
         ws.cell(row=r_idx, column=1, value=_g(row_data, "받는분이름"))
         ws.cell(row=r_idx, column=2, value=_g(row_data, "받는분주소"))
         ws.cell(row=r_idx, column=3, value=_g(row_data, "받는분전화번호"))
-        ws.cell(row=r_idx, column=4, value=_g(row_data, "_주문내역"))        # 주문내역 요약
+        gift_v    = row_data.get("_선물용", 0) or 0
+        general_v = row_data.get("_일반용", 0) or 0
+        ws.cell(row=r_idx, column=4, value=int(gift_v)    if int(gift_v)    > 0 else "")   # 선물용
+        ws.cell(row=r_idx, column=5, value=int(general_v) if int(general_v) > 0 else "")   # 일반용
+        ws.cell(row=r_idx, column=6, value=int(gift_v) + int(general_v))                   # 합계
         # 선물 주문만 송하인 이름·전화번호 표기 / 본인용은 공란 / 송하인주소는 전체 공란
-        ws.cell(row=r_idx, column=5, value="" if is_self_delivery else _g(row_data, "주문자이름"))      # 송하인명
-        ws.cell(row=r_idx, column=6, value="")                                                          # 송하인주소 = 공란
-        ws.cell(row=r_idx, column=7, value="" if is_self_delivery else _g(row_data, "주문자전화번호"))  # 송하인연락처
+        ws.cell(row=r_idx, column=7, value="" if is_self_delivery else _g(row_data, "주문자이름"))      # 송하인명
+        ws.cell(row=r_idx, column=8, value="")                                                          # 송하인주소 = 공란
+        ws.cell(row=r_idx, column=9, value="" if is_self_delivery else _g(row_data, "주문자전화번호"))  # 송하인연락처
 
     # 컬럼 너비
-    col_widths = [16, 36, 16, 34, 14, 12, 16]
+    col_widths = [16, 36, 16, 10, 10, 10, 14, 12, 16]
     for c_idx, width in enumerate(col_widths, 1):
         ws.column_dimensions[get_column_letter(c_idx)].width = width
 
@@ -2094,7 +2105,7 @@ def render_admin_settings(settings: dict):
             "상품명": st.column_config.TextColumn("상품명", required=True),
             "단가":   st.column_config.NumberColumn("단가(원)", min_value=0, step=1000, format="%d"),
             "설명":   st.column_config.TextColumn("설명"),
-            "상태":   st.column_config.SelectboxColumn("상태", options=["판매중", "마감"], default="판매중", required=True),
+            "상태":   st.column_config.SelectboxColumn("상태", options=["판매중", "마감", "예정"], default="판매중", required=True),
         },
         key="products_editor",
     )
