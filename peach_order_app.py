@@ -1585,14 +1585,16 @@ def render_admin_orders():
                         headers    = all_rows[0]
                         status_col = (headers.index("상태") + 1) if "상태" in headers else 12
                         col_idx    = {h: i for i, h in enumerate(headers)}
-                        archived_count = 0
+                        # 배치 업데이트: update_cells()로 한 번의 API 호출에 처리
+                        import gspread
+                        cells_to_update = []
                         for row_i, row in enumerate(all_rows[1:], start=2):
                             cur = row[col_idx["상태"]] if "상태" in col_idx and len(row) > col_idx["상태"] else ""
                             if cur not in ("보관", "취소", ""):
-                                sheet.update_cell(row_i, status_col, "보관")
-                                archived_count += 1
-                        if archived_count:
-                            st.success(f"✅ {archived_count}건을 보관 처리했습니다. 새 시즌 주문을 받을 준비가 됐습니다!")
+                                cells_to_update.append(gspread.Cell(row_i, status_col, "보관"))
+                        if cells_to_update:
+                            sheet.update_cells(cells_to_update)
+                            st.success(f"✅ {len(cells_to_update)}건을 보관 처리했습니다. 새 시즌 주문을 받을 준비가 됐습니다!")
                             load_orders.clear()
                             st.rerun()
                         else:
