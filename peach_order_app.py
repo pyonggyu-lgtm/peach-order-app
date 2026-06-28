@@ -478,8 +478,8 @@ def load_product_prices() -> dict:
 
 @st.cache_data(ttl=60)
 def load_products_full() -> pd.DataFrame:
-    """'상품목록' 시트 전체를 [상품명, 단가, 설명, 상태] DataFrame으로 반환합니다."""
-    cols = ["상품명", "단가", "설명", "상태"]
+    """'상품목록' 시트 전체를 [상품명, 단가, 상태] DataFrame으로 반환합니다."""
+    cols = ["상품명", "단가", "상태"]
     sheet = get_sheet("상품목록")
     if sheet is None:
         return pd.DataFrame(columns=cols)
@@ -604,7 +604,7 @@ def save_products(df: pd.DataFrame) -> bool:
     if sheet is None:
         return False
     try:
-        rows = [["상품명", "단가", "설명", "상태"]]
+        rows = [["상품명", "단가", "상태"]]
         for _, r in df.iterrows():
             name = str(r.get("상품명", "") or "").strip()
             if not name:
@@ -614,9 +614,8 @@ def save_products(df: pd.DataFrame) -> bool:
                 price = int(float(raw)) if raw else 0
             except ValueError:
                 price = 0
-            desc   = str(r.get("설명", "") or "").strip()
             status = str(r.get("상태", "") or "").strip() or "판매중"
-            rows.append([name, price, desc, status])
+            rows.append([name, price, status])
         sheet.clear()
         sheet.update("A1", rows)
         return True
@@ -2138,7 +2137,6 @@ def render_admin_settings(settings: dict):
         column_config={
             "상품명": st.column_config.TextColumn("상품명", required=True),
             "단가":   st.column_config.NumberColumn("단가(원)", min_value=0, step=1000, format="%d"),
-            "설명":   st.column_config.TextColumn("설명"),
             "상태":   st.column_config.SelectboxColumn("상태", options=["판매중", "마감", "예정"], default="판매중", required=True),
         },
         key="products_editor",
