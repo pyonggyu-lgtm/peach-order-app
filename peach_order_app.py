@@ -289,7 +289,7 @@ h3 {
     box-shadow: 0 2px 8px rgba(0,0,0,0.08);
     border-top: 3px solid #ff8c42;
 }
-.metric-card .metric-value { font-size: clamp(0.9rem, 1.7vw, 2rem); font-weight: bold; white-space: nowrap; }
+.metric-card .metric-value { font-size: clamp(0.8rem, 1.4vw, 1.6rem); font-weight: bold; word-break: break-word; overflow-wrap: break-word; }
 .metric-card .metric-label { color: #666; font-size: 0.9rem; }
 
 /* ── 모바일 반응형 ── */
