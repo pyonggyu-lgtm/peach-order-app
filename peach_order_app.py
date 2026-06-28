@@ -1562,7 +1562,7 @@ def render_admin_orders():
         paid_df["단가"]   = paid_df["상품명"].map(prices).fillna(0).astype(int)
         revenue = int((paid_df["수량_n"] * paid_df["단가"]).sum())
 
-    revenue_str = f"{revenue:,}원" if revenue > 0 else "단가 미설정"
+    revenue_str = f"{revenue:,}원" if prices else "단가 미설정"
 
     c1, c2, c3, c4, c5, c6, c7 = st.columns(7)
     _metric_card(c1, "현재 주문",  total,        "#ff8c42")
