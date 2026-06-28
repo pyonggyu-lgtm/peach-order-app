@@ -1582,7 +1582,7 @@ def render_admin_orders():
     revenue_str = f"{revenue:,}원" if prices else "단가 미설정"
 
     c1, c2, c3, c4, c5, c6, c7 = st.columns(7)
-    _metric_card(c1, "현재 주문",  total,        "#ff8c42")
+    _metric_card(c1, "주문번호",   total,        "#ff8c42")
     _metric_card(c2, "대기",       waiting,      "#ffc107")
     _metric_card(c3, "입금확인",   confirm,      "#2196f3")
     _metric_card(c4, "발송완료",   shipped,      "#4caf50")
