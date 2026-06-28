@@ -856,9 +856,9 @@ def generate_logen_excel(df: pd.DataFrame, farm_name: str, settings: dict) -> by
 
     farm_address = settings.get("farm_address", "")
 
-    # ── 취소 상태 자동 제외 ──
+    # ── 취소·보관 상태 자동 제외 ──
     if "상태" in df.columns:
-        df = df[df["상태"] != "취소"].copy()
+        df = df[~df["상태"].isin(["취소", "보관"])].copy()
 
     # ── 수량 안전 변환 (시트에서 문자열로 읽힌 경우 대비) ──
     if "수량" in df.columns:
@@ -894,8 +894,14 @@ def generate_logen_excel(df: pd.DataFrame, farm_name: str, settings: dict) -> by
     if group_keys and "수량" in df.columns:
         other_cols = [c for c in df.columns if c not in group_keys + ["수량"]]
         first_row  = df.groupby(group_keys, sort=False)[other_cols].first().reset_index()
-        summ = (df.groupby(group_keys, sort=False)
-                  .apply(_order_summary).reset_index(name="_주문내역"))
+        try:
+            summ = (df.groupby(group_keys, sort=False)
+                      .apply(_order_summary, include_groups=False)
+                      .reset_index(name="_주문내역"))
+        except TypeError:
+            summ = (df.groupby(group_keys, sort=False)
+                      .apply(_order_summary)
+                      .reset_index(name="_주문내역"))
         df = first_row.merge(summ, on=group_keys, how="left")
 
     # ── 엑셀 생성 ──
@@ -1192,8 +1198,7 @@ def render_customer_page(settings: dict, products: list, prices: dict = None):
 
     # ── 상품 목록 (품종별 묶음 표시, 시트 순서 유지) ──
     products_struct = load_products_struct()
-    _gift_prods = products   # 이름 목록 (정리/집계용)
-    _self_prods = products
+    _gift_prods = products   # 선물 모드 수량 수집용
 
     if "우리집" in order_type:
         # ── 모드 1: 본인 수령 ──
@@ -1674,6 +1679,7 @@ def render_admin_orders():
                             key = (_s("주문번호"), _s("받는분이름"), _s("받는분전화번호"), _s("상품명"))
                             lookup[key] = row_i
 
+                        cells_to_save = []
                         for idx in range(len(df)):
                             orig_status = df.iloc[idx]["상태"] if "상태" in df.columns else ""
                             new_status  = edited_df.iloc[idx]["상태"]
@@ -1687,11 +1693,13 @@ def render_admin_orders():
                                 str(row_data.get("상품명",           "")),
                             )
                             if key in lookup:
-                                sheet.update_cell(lookup[key], status_col, new_status)
+                                cells_to_save.append(gspread.Cell(lookup[key], status_col, new_status))
                                 saved += 1
                             else:
                                 st.warning(f"시트에서 행을 찾지 못했습니다: {key}")
 
+                        if cells_to_save:
+                            sheet.update_cells(cells_to_save)
                         if saved:
                             st.success(f"✅ {saved}건의 상태를 저장했습니다.")
                             load_orders.clear()
@@ -1869,20 +1877,22 @@ def render_admin_logen(settings: dict):
                     if not all_rows:
                         st.warning("시트가 비어있습니다.")
                     else:
-                        # 헤더에서 '상태' 열 번호를 동적으로 계산
-                        headers = all_rows[0]
+                        # 헤더에서 열 번호를 동적으로 계산
+                        headers    = all_rows[0]
+                        col_idx    = {h: i for i, h in enumerate(headers)}
                         status_col = (headers.index("상태") + 1) if "상태" in headers else 12
-                        status_idx = status_col - 1  # 0-indexed for list access
+                        status_idx = status_col - 1
+                        order_idx  = col_idx.get("주문번호", 0)  # 하드코딩 제거
                         target_ids = set(filtered["주문번호"].tolist())
-                        updated = 0
+                        cells_done = []
                         for row_idx, row in enumerate(all_rows[1:], start=2):
-                            if (len(row) > status_idx
-                                    and row[0] in target_ids
+                            if (len(row) > max(status_idx, order_idx)
+                                    and row[order_idx] in target_ids
                                     and row[status_idx] not in ("발송완료", "취소")):
-                                sheet.update_cell(row_idx, status_col, "발송완료")
-                                updated += 1
-                        if updated:
-                            st.success(f"✅ {updated}건을 '발송완료' 처리했습니다.")
+                                cells_done.append(gspread.Cell(row_idx, status_col, "발송완료"))
+                        if cells_done:
+                            sheet.update_cells(cells_done)
+                            st.success(f"✅ {len(cells_done)}건을 '발송완료' 처리했습니다.")
                             load_orders.clear()
                             st.rerun()
                         else:
