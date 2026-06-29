@@ -305,6 +305,21 @@ html, body {
     overflow-y: auto !important;
     -webkit-overflow-scrolling: touch !important;
 }
+/* ── 테이블 가로 스크롤 허용 (관리자 주문현황·로젠택배 등) ── */
+[data-testid="stDataFrame"],
+[data-testid="stDataFrame"] *,
+[data-testid="stDataEditor"],
+[data-testid="stDataEditor"] *,
+[data-testid="stDataEditorFrame"],
+[data-testid="stDataEditorFrame"] * {
+    touch-action: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+}
+[data-testid="stDataFrame"],
+[data-testid="stDataEditor"],
+[data-testid="stDataEditorFrame"] {
+    overflow-x: auto !important;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -2268,7 +2283,9 @@ def main():
                     style.id = 'peach-touch-fix';
                     style.textContent =
                         '* { touch-action: pan-y pinch-zoom !important; }' +
-                        'html, body { overflow-y: auto !important; -webkit-overflow-scrolling: touch !important; }';
+                        'html, body { overflow-y: auto !important; -webkit-overflow-scrolling: touch !important; }' +
+                        '[data-testid="stDataFrame"], [data-testid="stDataFrame"] *, [data-testid="stDataEditor"], [data-testid="stDataEditor"] *, [data-testid="stDataEditorFrame"], [data-testid="stDataEditorFrame"] * { touch-action: auto !important; -webkit-overflow-scrolling: touch !important; }' +
+                        '[data-testid="stDataFrame"], [data-testid="stDataEditor"], [data-testid="stDataEditorFrame"] { overflow-x: auto !important; }';
                     doc.head.appendChild(style);
                 }
             } catch(e) {}
